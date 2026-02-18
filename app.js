@@ -87,6 +87,7 @@ function cleanForContentful(input) {
   removePromptContent(root, START_PROMPTS);
   normalizeHeadings(root);
   convertBookListItemsToH3(root);
+  convertRankedBookHeadingsToH3(root);
   convertBookTitlesToH3(root);
   unwrapTags(root, ["div", "span", "font", "section", "article", "main", "header", "footer", "aside"]);
   normalizeItalics(root);
@@ -347,6 +348,27 @@ function convertBookTitlesToH3(root) {
     const h3 = doc.createElement("h3");
     appendItalicizedTitle(h3, p, title, suffix, doc);
     p.replaceWith(h3);
+  });
+}
+
+function convertRankedBookHeadingsToH3(root) {
+  const doc = root.ownerDocument;
+
+  root.querySelectorAll("h1,h2,h3").forEach((heading) => {
+    const text = normalizeSpace(heading.textContent || "");
+    const rankedMatch = text.match(/^(\d+)\.\s+(.+)$/);
+    if (!rankedMatch) {
+      return;
+    }
+
+    const prefix = `${rankedMatch[1]}. `;
+    const remainder = rankedMatch[2];
+    const { title, suffix } = splitTitleAndSuffix(remainder);
+
+    const h3 = doc.createElement("h3");
+    h3.appendChild(doc.createTextNode(prefix));
+    appendItalicizedTitle(h3, heading, title, suffix, doc);
+    heading.replaceWith(h3);
   });
 }
 
