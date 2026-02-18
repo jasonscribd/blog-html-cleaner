@@ -99,12 +99,17 @@ button {
   cursor: pointer;
 }
 
-button:nth-child(2) {
+#validateLinksBtn {
+  background: #6a4c0f;
+  border-color: #6a4c0f;
+}
+
+#copyBtn {
   background: #0b7d45;
   border-color: #0b7d45;
 }
 
-button:nth-child(3) {
+#clearBtn {
   background: #6a737d;
   border-color: #6a737d;
 }

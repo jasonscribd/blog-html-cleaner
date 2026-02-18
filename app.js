@@ -3,8 +3,14 @@ const sourceHtml = document.getElementById("sourceHtml");
 const cleanHtml = document.getElementById("cleanHtml");
 const preview = document.getElementById("preview");
 const cleanBtn = document.getElementById("cleanBtn");
+const validateLinksBtn = document.getElementById("validateLinksBtn");
 const copyBtn = document.getElementById("copyBtn");
 const clearBtn = document.getElementById("clearBtn");
+const linkStatus = document.getElementById("linkStatus");
+
+const START_PROMPTS = ["Start Reading", "Start Listening"];
+const DEAD_PAGE_MARKER =
+  "The page you are looking for is no longer here, or never existed in the first place (bummer).";
 
 pasteTarget.addEventListener("paste", (event) => {
   const html = event.clipboardData?.getData("text/html");
@@ -29,6 +35,11 @@ cleanBtn.addEventListener("click", () => {
   const cleaned = cleanForContentful(sourceHtml.value);
   cleanHtml.value = cleaned;
   preview.innerHTML = cleaned;
+  setStatus("Clean complete.");
+});
+
+validateLinksBtn.addEventListener("click", async () => {
+  await validateLinksInOutput();
 });
 
 copyBtn.addEventListener("click", async () => {
@@ -48,6 +59,7 @@ clearBtn.addEventListener("click", () => {
   sourceHtml.value = "";
   cleanHtml.value = "";
   preview.innerHTML = "";
+  setStatus("");
 });
 
 function cleanForContentful(input) {
@@ -72,18 +84,92 @@ function cleanForContentful(input) {
     "source"
   ]);
 
-  removeExactTextBlocks(root, ["Start Reading", "Start Listening"]);
+  removeLinkedPromptText(root, START_PROMPTS);
+  removeExactTextBlocks(root, START_PROMPTS);
   normalizeHeadings(root);
+  convertBookListItemsToH3(root);
   convertBookTitlesToH3(root);
   unwrapTags(root, ["div", "span", "font", "section", "article", "main", "header", "footer", "aside"]);
-  stripFormattingTags(root, ["b", "strong", "i", "em", "u"]);
-  pruneToAllowedTags(root, ["p", "h1", "h2", "h3", "ul", "ol", "li", "blockquote", "a", "br"]);
+  normalizeItalics(root);
+  stripFormattingTags(root, ["b", "strong", "u"]);
+  pruneToAllowedTags(root, ["p", "h1", "h2", "h3", "ul", "ol", "li", "blockquote", "a", "br", "em"]);
   normalizeLinks(root);
   stripAttributes(root);
   removeEmptyElements(root);
   collapseExtraBreaks(root);
 
   return sanitizeOutput(root.innerHTML);
+}
+
+async function validateLinksInOutput() {
+  const current = cleanHtml.value.trim();
+  if (!current) {
+    setStatus("Clean HTML first, then run link validation.");
+    return;
+  }
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(`<body>${current}</body>`, "text/html");
+  const root = doc.body;
+  const links = Array.from(root.querySelectorAll("a[href]"));
+
+  if (links.length === 0) {
+    setStatus("No links found to validate.");
+    return;
+  }
+
+  validateLinksBtn.disabled = true;
+  let removed = 0;
+  let unknown = 0;
+
+  setStatus(`Validating ${links.length} links (best effort)...`);
+
+  for (const link of links) {
+    const result = await checkLinkForDeadPage(link.getAttribute("href") || "");
+    if (result === "dead") {
+      link.replaceWith(...link.childNodes);
+      removed += 1;
+    } else if (result === "unknown") {
+      unknown += 1;
+    }
+  }
+
+  cleanHtml.value = sanitizeOutput(root.innerHTML);
+  preview.innerHTML = cleanHtml.value;
+
+  if (unknown > 0) {
+    setStatus(`Validation done: removed ${removed} dead-page links, ${unknown} could not be checked (likely CORS blocked).`);
+  } else {
+    setStatus(`Validation done: removed ${removed} dead-page links.`);
+  }
+
+  validateLinksBtn.disabled = false;
+}
+
+async function checkLinkForDeadPage(url) {
+  const href = (url || "").trim();
+  if (!href) {
+    return "unknown";
+  }
+
+  try {
+    const response = await fetch(href, { method: "GET", redirect: "follow", mode: "cors" });
+    if (!response.ok) {
+      return "unknown";
+    }
+
+    const contentType = (response.headers.get("content-type") || "").toLowerCase();
+    if (!contentType.includes("text/html")) {
+      return "ok";
+    }
+
+    const body = normalizeSpace((await response.text()).toLowerCase());
+    const marker = normalizeSpace(DEAD_PAGE_MARKER).toLowerCase();
+
+    return body.includes(marker) ? "dead" : "ok";
+  } catch {
+    return "unknown";
+  }
 }
 
 function removeComments(doc) {
@@ -101,11 +187,18 @@ function removeTags(root, tags) {
   root.querySelectorAll(tags.join(",")).forEach((el) => el.remove());
 }
 
+function removeLinkedPromptText(root, phrases) {
+  const promptPattern = buildPromptPattern(phrases);
+  root.querySelectorAll("a").forEach((link) => {
+    const text = normalizeSpace(link.textContent || "");
+    if (promptPattern.test(text)) {
+      link.remove();
+    }
+  });
+}
+
 function removeExactTextBlocks(root, phrases) {
-  const phrasePattern = new RegExp(
-    `^(${phrases.map((p) => normalizeSpace(p)).join("|")})(?:[:\\-\\s]*)$`,
-    "i"
-  );
+  const phrasePattern = buildPromptPattern(phrases);
   const blocks = root.querySelectorAll("p,h1,h2,h3,h4,h5,h6,li,blockquote");
 
   blocks.forEach((el) => {
@@ -116,6 +209,11 @@ function removeExactTextBlocks(root, phrases) {
   });
 }
 
+function buildPromptPattern(phrases) {
+  const escaped = phrases.map((phrase) => normalizeSpace(phrase).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return new RegExp(`^(?:${escaped.join("|")})(?:[:\\-\\s]*)$`, "i");
+}
+
 function normalizeHeadings(root) {
   root.querySelectorAll("h4,h5,h6").forEach((heading) => {
     const h3 = root.ownerDocument.createElement("h3");
@@ -124,44 +222,121 @@ function normalizeHeadings(root) {
   });
 }
 
+function convertBookListItemsToH3(root) {
+  const doc = root.ownerDocument;
+
+  root.querySelectorAll("ul,ol").forEach((list) => {
+    const items = Array.from(list.querySelectorAll(":scope > li"));
+
+    items.forEach((li) => {
+      const text = normalizeSpace(li.textContent || "");
+      if (!text) {
+        li.remove();
+        return;
+      }
+
+      const { title, suffix } = splitTitleAndSuffix(text);
+      const h3 = doc.createElement("h3");
+      appendItalicizedTitle(h3, li, title, suffix, doc);
+      li.replaceWith(h3);
+    });
+
+    list.remove();
+  });
+}
+
 function convertBookTitlesToH3(root) {
+  const doc = root.ownerDocument;
+
   root.querySelectorAll("p").forEach((p) => {
     const text = normalizeSpace(p.textContent || "");
     if (!text) {
       return;
     }
 
-    const meaningfulChildren = Array.from(p.childNodes).filter((node) => {
-      if (node.nodeType === Node.TEXT_NODE) {
-        return normalizeSpace(node.textContent || "") !== "";
-      }
-      return true;
-    });
-
-    const allowedChildNames = new Set(["STRONG", "B", "EM", "I", "A", "BR", "#text"]);
-    const onlyAllowedChildren = meaningfulChildren.every((node) => {
-      if (node.nodeType === Node.TEXT_NODE) {
-        return true;
-      }
-      return allowedChildNames.has(node.nodeName);
-    });
-
-    const hasStrongMarker = p.querySelector("strong,b,em,i") !== null;
-    const isShortTitle = text.length >= 3 && text.length <= 120;
+    const hasStyleMarker = p.querySelector("strong,b,em,i") !== null;
+    const isShortTitle = text.length >= 3 && text.length <= 160;
     const noTerminalPunctuation = !/[.!?]$/.test(text);
-    const titleLikeWordCount = text.split(/\s+/).length <= 14;
+    const titleLikeWordCount = text.split(/\s+/).length <= 20;
 
-    if (onlyAllowedChildren && hasStrongMarker && isShortTitle && noTerminalPunctuation && titleLikeWordCount) {
-      const h3 = root.ownerDocument.createElement("h3");
-      h3.innerHTML = p.innerHTML;
-      p.replaceWith(h3);
+    if (!hasStyleMarker || !isShortTitle || !noTerminalPunctuation || !titleLikeWordCount) {
+      return;
     }
+
+    const { title, suffix } = splitTitleAndSuffix(text);
+    const h3 = doc.createElement("h3");
+    appendItalicizedTitle(h3, p, title, suffix, doc);
+    p.replaceWith(h3);
   });
+}
+
+function splitTitleAndSuffix(text) {
+  const normalized = normalizeSpace(text);
+  const byMatch = normalized.match(/^(.*?)(\s+by\s+.+)$/i);
+
+  if (byMatch && normalizeSpace(byMatch[1])) {
+    return {
+      title: normalizeSpace(byMatch[1]),
+      suffix: byMatch[2]
+    };
+  }
+
+  return {
+    title: normalized,
+    suffix: ""
+  };
+}
+
+function appendItalicizedTitle(target, sourceNode, title, suffix, doc) {
+  const em = doc.createElement("em");
+  const linkedTitle = findTitleAnchor(sourceNode, title);
+
+  if (linkedTitle) {
+    const a = doc.createElement("a");
+    const href = (linkedTitle.getAttribute("href") || "").trim();
+    if (href) {
+      a.setAttribute("href", href);
+    }
+    const titleAttr = linkedTitle.getAttribute("title");
+    if (titleAttr) {
+      a.setAttribute("title", titleAttr);
+    }
+    a.textContent = title;
+    em.appendChild(a);
+  } else {
+    em.textContent = title;
+  }
+
+  target.appendChild(em);
+
+  if (suffix) {
+    target.appendChild(doc.createTextNode(suffix));
+  }
+}
+
+function findTitleAnchor(node, title) {
+  const normalizedTitle = normalizeSpace(title).toLowerCase();
+  if (!normalizedTitle) {
+    return null;
+  }
+
+  return Array.from(node.querySelectorAll("a")).find((a) => {
+    const text = normalizeSpace(a.textContent || "").toLowerCase();
+    return text === normalizedTitle;
+  }) || null;
 }
 
 function unwrapTags(root, tags) {
   root.querySelectorAll(tags.join(",")).forEach((el) => {
     el.replaceWith(...el.childNodes);
+  });
+}
+
+function normalizeItalics(root) {
+  root.querySelectorAll("i").forEach((node) => {
+    const em = root.ownerDocument.createElement("em");
+    em.innerHTML = node.innerHTML;
+    node.replaceWith(em);
   });
 }
 
@@ -291,4 +466,8 @@ function escapeHtml(text) {
     .replace(/>/g, "&gt;")
     .replace(/\"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function setStatus(message) {
+  linkStatus.textContent = message;
 }
