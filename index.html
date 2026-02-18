@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Blog HTML Cleaner</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header>
+        <h1>Blog HTML Cleaner</h1>
+        <p>Paste copied blog content, clean it for Contentful, then copy the result.</p>
+      </header>
+
+      <section class="panel">
+        <label for="pasteTarget">Paste rich text from the source blog</label>
+        <div
+          id="pasteTarget"
+          class="paste-target"
+          contenteditable="true"
+          spellcheck="false"
+          aria-label="Paste rich text here"
+        ></div>
+        <p class="hint">Tip: Click inside the box and paste. The app captures HTML when available.</p>
+      </section>
+
+      <section class="panel">
+        <label for="sourceHtml">Source HTML (editable)</label>
+        <textarea id="sourceHtml" rows="12" spellcheck="false"></textarea>
+      </section>
+
+      <div class="actions">
+        <button id="cleanBtn" type="button">Clean HTML</button>
+        <button id="copyBtn" type="button">Copy Clean HTML</button>
+        <button id="clearBtn" type="button">Clear</button>
+      </div>
+
+      <section class="panel">
+        <label for="cleanHtml">Clean HTML for Contentful</label>
+        <textarea id="cleanHtml" rows="14" spellcheck="false" readonly></textarea>
+      </section>
+
+      <section class="panel preview-panel">
+        <h2>Preview</h2>
+        <div id="preview" class="preview"></div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
