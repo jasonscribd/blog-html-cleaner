@@ -34,6 +34,6 @@ Simple static web app for cleaning pasted blog HTML before pasting into Contentf
 
 ## Notes
 
-- Link checking is best effort in the browser. Some sites block cross-origin fetches (CORS), so a manual spot check is still recommended.
+- Link checking is best effort in the browser. The app tries direct fetch, then proxy fallbacks, but some links may still be unverifiable.
 - Book-title detection uses heuristics. Validate final output before publishing.
 - If your source uses unusual markup, update rules in `app.js`.

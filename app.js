@@ -84,8 +84,7 @@ function cleanForContentful(input) {
     "source"
   ]);
 
-  removeLinkedPromptText(root, START_PROMPTS);
-  removeExactTextBlocks(root, START_PROMPTS);
+  removePromptContent(root, START_PROMPTS);
   normalizeHeadings(root);
   convertBookListItemsToH3(root);
   convertBookTitlesToH3(root);
@@ -124,52 +123,160 @@ async function validateLinksInOutput() {
 
   setStatus(`Validating ${links.length} links (best effort)...`);
 
-  for (const link of links) {
-    const result = await checkLinkForDeadPage(link.getAttribute("href") || "");
-    if (result === "dead") {
-      link.replaceWith(...link.childNodes);
-      removed += 1;
-    } else if (result === "unknown") {
-      unknown += 1;
+  try {
+    for (const link of links) {
+      const result = await checkLinkForDeadPage(link.getAttribute("href") || "");
+      if (result === "dead") {
+        link.replaceWith(...link.childNodes);
+        removed += 1;
+      } else if (result === "unknown") {
+        unknown += 1;
+      }
     }
+
+    cleanHtml.value = sanitizeOutput(root.innerHTML);
+    preview.innerHTML = cleanHtml.value;
+
+    if (unknown > 0) {
+      setStatus(`Validation done: removed ${removed} dead-page links, ${unknown} could not be confirmed.`);
+    } else {
+      setStatus(`Validation done: removed ${removed} dead-page links.`);
+    }
+  } finally {
+    validateLinksBtn.disabled = false;
   }
-
-  cleanHtml.value = sanitizeOutput(root.innerHTML);
-  preview.innerHTML = cleanHtml.value;
-
-  if (unknown > 0) {
-    setStatus(`Validation done: removed ${removed} dead-page links, ${unknown} could not be checked (likely CORS blocked).`);
-  } else {
-    setStatus(`Validation done: removed ${removed} dead-page links.`);
-  }
-
-  validateLinksBtn.disabled = false;
 }
 
 async function checkLinkForDeadPage(url) {
   const href = (url || "").trim();
-  if (!href) {
+  if (!href || !/^https?:\/\//i.test(href)) {
     return "unknown";
   }
 
+  const marker = normalizeSpace(DEAD_PAGE_MARKER).toLowerCase();
+  const probes = [fetchDirectHtml, fetchAllOriginsHtml, fetchJinaHtml];
+
+  for (const probe of probes) {
+    const html = await probe(href);
+    if (html === null) {
+      continue;
+    }
+
+    if (html === "") {
+      return "ok";
+    }
+
+    const body = normalizeSpace(html.toLowerCase());
+    return body.includes(marker) ? "dead" : "ok";
+  }
+
+  return "unknown";
+}
+
+async function fetchDirectHtml(url) {
   try {
-    const response = await fetch(href, { method: "GET", redirect: "follow", mode: "cors" });
+    const response = await fetchWithTimeout(url, { method: "GET", redirect: "follow", mode: "cors" }, 8000);
     if (!response.ok) {
-      return "unknown";
+      return null;
     }
 
     const contentType = (response.headers.get("content-type") || "").toLowerCase();
     if (!contentType.includes("text/html")) {
-      return "ok";
+      return "";
     }
 
-    const body = normalizeSpace((await response.text()).toLowerCase());
-    const marker = normalizeSpace(DEAD_PAGE_MARKER).toLowerCase();
-
-    return body.includes(marker) ? "dead" : "ok";
+    return await response.text();
   } catch {
-    return "unknown";
+    return null;
   }
+}
+
+async function fetchAllOriginsHtml(url) {
+  try {
+    const endpoint = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+    const response = await fetchWithTimeout(endpoint, { method: "GET", mode: "cors" }, 10000);
+    if (!response.ok) {
+      return null;
+    }
+
+    return await response.text();
+  } catch {
+    return null;
+  }
+}
+
+async function fetchJinaHtml(url) {
+  try {
+    const endpoint = `https://r.jina.ai/http://${url.replace(/^https?:\/\//i, "")}`;
+    const response = await fetchWithTimeout(endpoint, { method: "GET", mode: "cors" }, 10000);
+    if (!response.ok) {
+      return null;
+    }
+
+    return await response.text();
+  } catch {
+    return null;
+  }
+}
+
+async function fetchWithTimeout(url, options, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function buildPromptTokens(phrases) {
+  return phrases.map((phrase) => normalizePromptToken(phrase)).filter(Boolean);
+}
+
+function normalizePromptToken(text) {
+  return (text || "").toLowerCase().replace(/[^a-z]/g, "");
+}
+
+function hasPromptText(text, promptTokens) {
+  const normalized = normalizePromptToken(text);
+  if (!normalized) {
+    return false;
+  }
+
+  return promptTokens.some((token) => normalized.includes(token));
+}
+
+function removePromptContent(root, phrases) {
+  const promptTokens = buildPromptTokens(phrases);
+
+  root.querySelectorAll("a").forEach((link) => {
+    if (hasPromptText(link.textContent || "", promptTokens)) {
+      link.remove();
+    }
+  });
+
+  root.querySelectorAll("p,h1,h2,h3,h4,h5,h6,li,blockquote").forEach((el) => {
+    if (hasPromptText(el.textContent || "", promptTokens)) {
+      el.remove();
+    }
+  });
+
+  const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const textNodes = [];
+  let node = walker.nextNode();
+  while (node) {
+    if (hasPromptText(node.textContent || "", promptTokens)) {
+      textNodes.push(node);
+    }
+    node = walker.nextNode();
+  }
+  textNodes.forEach((textNode) => textNode.remove());
+
+  root.querySelectorAll("p,h1,h2,h3,h4,h5,h6,li,blockquote").forEach((el) => {
+    if (!normalizeSpace(el.textContent || "")) {
+      el.remove();
+    }
+  });
 }
 
 function removeComments(doc) {
@@ -185,33 +292,6 @@ function removeComments(doc) {
 
 function removeTags(root, tags) {
   root.querySelectorAll(tags.join(",")).forEach((el) => el.remove());
-}
-
-function removeLinkedPromptText(root, phrases) {
-  const promptPattern = buildPromptPattern(phrases);
-  root.querySelectorAll("a").forEach((link) => {
-    const text = normalizeSpace(link.textContent || "");
-    if (promptPattern.test(text)) {
-      link.remove();
-    }
-  });
-}
-
-function removeExactTextBlocks(root, phrases) {
-  const phrasePattern = buildPromptPattern(phrases);
-  const blocks = root.querySelectorAll("p,h1,h2,h3,h4,h5,h6,li,blockquote");
-
-  blocks.forEach((el) => {
-    const text = normalizeSpace(el.textContent || "");
-    if (phrasePattern.test(text)) {
-      el.remove();
-    }
-  });
-}
-
-function buildPromptPattern(phrases) {
-  const escaped = phrases.map((phrase) => normalizeSpace(phrase).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  return new RegExp(`^(?:${escaped.join("|")})(?:[:\\-\\s]*)$`, "i");
 }
 
 function normalizeHeadings(root) {
@@ -320,10 +400,12 @@ function findTitleAnchor(node, title) {
     return null;
   }
 
-  return Array.from(node.querySelectorAll("a")).find((a) => {
-    const text = normalizeSpace(a.textContent || "").toLowerCase();
-    return text === normalizedTitle;
-  }) || null;
+  return (
+    Array.from(node.querySelectorAll("a")).find((a) => {
+      const text = normalizeSpace(a.textContent || "").toLowerCase();
+      return text === normalizedTitle;
+    }) || null
+  );
 }
 
 function unwrapTags(root, tags) {
@@ -436,10 +518,7 @@ function collapseExtraBreaks(root) {
 }
 
 function sanitizeOutput(html) {
-  return html
-    .replace(/\u00a0/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  return html.replace(/\u00a0/g, " ").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function normalizeSpace(text) {
