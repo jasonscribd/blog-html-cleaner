@@ -7,6 +7,8 @@ const validateLinksBtn = document.getElementById("validateLinksBtn");
 const copyBtn = document.getElementById("copyBtn");
 const clearBtn = document.getElementById("clearBtn");
 const linkStatus = document.getElementById("linkStatus");
+const sourceUrl = document.getElementById("sourceUrl");
+const loadUrlBtn = document.getElementById("loadUrlBtn");
 const sheetFile = document.getElementById("sheetFile");
 const sheetColumn = document.getElementById("sheetColumn");
 const cleanSheetBtn = document.getElementById("cleanSheetBtn");
@@ -74,6 +76,10 @@ clearBtn.addEventListener("click", () => {
   setStatus("");
 });
 
+loadUrlBtn.addEventListener("click", async () => {
+  await loadSourceFromUrl();
+});
+
 sheetFile.addEventListener("change", async (event) => {
   await loadSpreadsheet(event.target.files?.[0] || null);
 });
@@ -125,6 +131,154 @@ function cleanForContentful(input) {
   collapseExtraBreaks(root);
 
   return sanitizeOutput(root.innerHTML);
+}
+
+async function loadSourceFromUrl() {
+  const rawUrl = normalizeSpace(sourceUrl.value || "");
+  if (!rawUrl) {
+    setStatus("Enter a blog URL first.");
+    return;
+  }
+
+  const normalizedUrl = normalizeImportUrl(rawUrl);
+  if (!normalizedUrl) {
+    setStatus("Enter a valid URL (must start with http:// or https://).");
+    return;
+  }
+
+  loadUrlBtn.disabled = true;
+  setStatus("Loading page and extracting article content...");
+
+  try {
+    const html = await fetchImportHtml(normalizedUrl);
+    if (!html) {
+      setStatus("Could not fetch the page content. Try copy/paste for this URL.");
+      return;
+    }
+
+    const extracted = extractArticleHtml(html);
+    if (!extracted) {
+      setStatus("Could not find article content on that page. Try copy/paste.");
+      return;
+    }
+
+    sourceHtml.value = extracted;
+    const previewDoc = new DOMParser().parseFromString(`<body>${extracted}</body>`, "text/html");
+    const previewText = normalizeSpace(previewDoc.body.textContent || "");
+    pasteTarget.innerText = previewText.slice(0, 400) + (previewText.length > 400 ? "..." : "");
+    setStatus("Loaded source HTML from URL.");
+  } finally {
+    loadUrlBtn.disabled = false;
+  }
+}
+
+function normalizeImportUrl(input) {
+  const maybeUrl = /^https?:\/\//i.test(input) ? input : `https://${input}`;
+  try {
+    const parsed = new URL(maybeUrl);
+    if (!/^https?:$/i.test(parsed.protocol)) {
+      return "";
+    }
+    return parsed.toString();
+  } catch {
+    return "";
+  }
+}
+
+async function fetchImportHtml(url) {
+  const probes = [fetchDirectHtmlForImport, fetchAllOriginsHtml, fetchCorsProxyHtml];
+  for (const probe of probes) {
+    const html = await probe(url);
+    if (!html || !html.trim()) {
+      continue;
+    }
+    if (/<html|<article|<body/i.test(html)) {
+      return html;
+    }
+  }
+  return "";
+}
+
+async function fetchDirectHtmlForImport(url) {
+  try {
+    const response = await fetchWithTimeout(url, { method: "GET", redirect: "follow", mode: "cors" }, 10000);
+    if (!response.ok) {
+      return "";
+    }
+    const contentType = (response.headers.get("content-type") || "").toLowerCase();
+    if (!contentType.includes("text/html")) {
+      return "";
+    }
+    return await response.text();
+  } catch {
+    return "";
+  }
+}
+
+async function fetchCorsProxyHtml(url) {
+  try {
+    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+    const response = await fetchWithTimeout(proxyUrl, { method: "GET", mode: "cors" }, 10000);
+    if (!response.ok) {
+      return "";
+    }
+    return await response.text();
+  } catch {
+    return "";
+  }
+}
+
+function extractArticleHtml(rawHtml) {
+  const doc = new DOMParser().parseFromString(rawHtml, "text/html");
+  const contentSelectors = [
+    "article [itemprop='articleBody']",
+    "article .entry-content",
+    "article .post-content",
+    "article .article-content",
+    "article .post-body",
+    "article",
+    ".entry-content",
+    ".post-content",
+    ".article-content",
+    ".post-body",
+    "main article",
+    "main"
+  ];
+
+  const candidates = [];
+  contentSelectors.forEach((selector) => {
+    doc.querySelectorAll(selector).forEach((node) => candidates.push(node));
+  });
+  if (candidates.length === 0 && doc.body) {
+    candidates.push(doc.body);
+  }
+
+  let bestNode = null;
+  let bestScore = 0;
+  candidates.forEach((node) => {
+    const cloned = node.cloneNode(true);
+    removeNoiseNodes(cloned);
+    const textSize = normalizeSpace(cloned.textContent || "").length;
+    if (textSize > bestScore) {
+      bestScore = textSize;
+      bestNode = cloned;
+    }
+  });
+
+  if (!bestNode || bestScore < 60) {
+    return "";
+  }
+
+  removeNoiseNodes(bestNode);
+  return bestNode.innerHTML || "";
+}
+
+function removeNoiseNodes(rootNode) {
+  rootNode
+    .querySelectorAll(
+      "script,style,noscript,iframe,svg,canvas,form,nav,footer,header,aside,.newsletter,.subscribe,.related,.share,.social,.breadcrumbs,.author-bio"
+    )
+    .forEach((el) => el.remove());
 }
 
 async function loadSpreadsheet(file) {

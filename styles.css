@@ -61,6 +61,16 @@ input[type="file"] {
   background: #fff;
 }
 
+input[type="url"] {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 14px;
+  line-height: 1.45;
+  background: #fff;
+}
+
 textarea {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   resize: vertical;
@@ -75,7 +85,8 @@ textarea {
 .paste-target:focus,
 textarea:focus,
 select:focus,
-input[type="file"]:focus {
+input[type="file"]:focus,
+input[type="url"]:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(0, 87, 184, 0.14);
 }
@@ -126,6 +137,11 @@ button {
 #downloadSheetBtn {
   background: #0f5f6a;
   border-color: #0f5f6a;
+}
+
+#loadUrlBtn {
+  background: #9b4d00;
+  border-color: #9b4d00;
 }
 
 .preview {

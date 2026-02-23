@@ -16,11 +16,12 @@ Simple static web app for cleaning pasted blog HTML before pasting into Contentf
 - Strips most attributes to reduce formatting noise
 - Includes a **Validate Links** action (best effort) to remove links that resolve to a known dead-page message
 - Supports spreadsheet batch cleaning: upload CSV/XLSX, choose a source column, and download cleaned output
+- Supports URL import: paste a blog post link and auto-load extracted rich HTML into the cleaner
 
 ## Use
 
 1. Open `index.html` in a browser (or host it).
-2. Paste copied content into the top paste box.
+2. Either paste copied content into the top paste box, or paste a blog URL and click **Load from URL**.
 3. Click **Clean HTML**.
 4. Optional: click **Validate Links** to test links and unlink dead-page destinations.
 5. Copy from **Clean HTML for Contentful** and paste into Contentful.
@@ -43,5 +44,6 @@ Simple static web app for cleaning pasted blog HTML before pasting into Contentf
 ## Notes
 
 - Link checking is best effort in the browser. The app tries direct fetch, then proxy fallbacks, but some links may still be unverifiable.
+- URL import is best effort and depends on site fetch/CORS rules and page structure.
 - Book-title detection uses heuristics. Validate final output before publishing.
 - If your source uses unusual markup, update rules in `app.js`.
