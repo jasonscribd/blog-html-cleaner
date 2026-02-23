@@ -9,6 +9,8 @@ const clearBtn = document.getElementById("clearBtn");
 const linkStatus = document.getElementById("linkStatus");
 const sourceUrl = document.getElementById("sourceUrl");
 const loadUrlBtn = document.getElementById("loadUrlBtn");
+const downloadThumbsBtn = document.getElementById("downloadThumbsBtn");
+const thumbStatus = document.getElementById("thumbStatus");
 
 const START_PROMPTS = ["Start Reading", "Start Listening"];
 const DEAD_PAGE_MARKER =
@@ -66,6 +68,10 @@ clearBtn.addEventListener("click", () => {
 
 loadUrlBtn.addEventListener("click", async () => {
   await loadSourceFromUrl();
+});
+
+downloadThumbsBtn.addEventListener("click", async () => {
+  await downloadThumbnailsZipFromUrl();
 });
 
 function cleanForContentful(input) {
@@ -144,6 +150,368 @@ async function loadSourceFromUrl() {
   } finally {
     loadUrlBtn.disabled = false;
   }
+}
+
+async function downloadThumbnailsZipFromUrl() {
+  const rawUrl = normalizeSpace(sourceUrl.value || "");
+  if (!rawUrl) {
+    setThumbStatus("Enter a blog URL first.");
+    return;
+  }
+
+  const normalizedUrl = normalizeImportUrl(rawUrl);
+  if (!normalizedUrl) {
+    setThumbStatus("Enter a valid URL (must start with http:// or https://).");
+    return;
+  }
+
+  if (typeof JSZip === "undefined") {
+    setThumbStatus("ZIP support failed to load. Refresh and try again.");
+    return;
+  }
+
+  downloadThumbsBtn.disabled = true;
+  setThumbStatus("Loading post and collecting thumbnail images...");
+
+  try {
+    const rawPage = await fetchPageForThumbnails(normalizedUrl);
+    if (!rawPage) {
+      setThumbStatus("Could not fetch this URL. Try another link or manual image download.");
+      return;
+    }
+
+    const postTitle = extractPostTitle(rawPage, normalizedUrl);
+    const imageUrls = extractThumbnailImageUrls(rawPage, normalizedUrl);
+    if (imageUrls.length === 0) {
+      setThumbStatus("No thumbnail images found in the post content.");
+      return;
+    }
+
+    const zip = new JSZip();
+    let added = 0;
+    let failed = 0;
+
+    for (let i = 0; i < imageUrls.length; i += 1) {
+      const imageUrl = imageUrls[i];
+      setThumbStatus(`Processing ${i + 1}/${imageUrls.length}...`);
+
+      const blob = await fetchImageBlob(imageUrl);
+      if (!blob) {
+        failed += 1;
+        continue;
+      }
+
+      const resized = await resizeImageBlobToMax(blob, 300);
+      if (!resized) {
+        failed += 1;
+        continue;
+      }
+
+      const ext = extensionFromBlobType(resized.type) || "jpg";
+      const fileName = `${String(added + 1).padStart(2, "0")}-${slugifyFilename(basenameFromUrl(imageUrl))}.${ext}`;
+      zip.file(fileName, resized);
+      added += 1;
+    }
+
+    if (added === 0) {
+      setThumbStatus("Could not process images from this post (blocked by host/CORS).");
+      return;
+    }
+
+    const zipBlob = await zip.generateAsync({ type: "blob" });
+    const zipName = `${slugifyFilename(postTitle || "post-thumbnails")}.zip`;
+    triggerDownload(zipBlob, zipName);
+
+    if (failed > 0) {
+      setThumbStatus(`Downloaded ${added} images. ${failed} could not be fetched.`);
+    } else {
+      setThumbStatus(`Downloaded ${added} images.`);
+    }
+  } finally {
+    downloadThumbsBtn.disabled = false;
+  }
+}
+
+async function fetchPageForThumbnails(url) {
+  const probes = [fetchDirectHtmlForImport, fetchAllOriginsHtml, fetchCorsProxyHtml, fetchJinaHtml];
+  for (const probe of probes) {
+    const body = await probe(url);
+    if (body && body.trim()) {
+      return body;
+    }
+  }
+  return "";
+}
+
+function extractPostTitle(rawBody, fallbackUrl) {
+  const trimmed = (rawBody || "").trim();
+  if (!trimmed) {
+    return fallbackUrl;
+  }
+
+  if (!/<html|<head|<body/i.test(trimmed)) {
+    const markdownTitle = trimmed.match(/^\s*Title:\s*(.+)$/im);
+    if (markdownTitle && normalizeSpace(markdownTitle[1])) {
+      return normalizeSpace(markdownTitle[1]);
+    }
+    return fallbackUrl;
+  }
+
+  const doc = new DOMParser().parseFromString(trimmed, "text/html");
+  const h1 = normalizeSpace(doc.querySelector("article h1, h1")?.textContent || "");
+  if (h1) {
+    return h1;
+  }
+
+  const title = normalizeSpace(doc.querySelector("title")?.textContent || "");
+  if (title) {
+    return title.replace(/\s*[\|\-]\s*Everand.*$/i, "").trim();
+  }
+
+  return fallbackUrl;
+}
+
+function extractThumbnailImageUrls(rawBody, pageUrl) {
+  const trimmed = (rawBody || "").trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  if (!/<html|<head|<body/i.test(trimmed)) {
+    const markdownUrls = Array.from(trimmed.matchAll(/!\[[^\]]*]\((https?:\/\/[^)\s]+)\)/gi)).map((m) => m[1]);
+    return uniqueUrls(markdownUrls);
+  }
+
+  const doc = new DOMParser().parseFromString(trimmed, "text/html");
+  const candidateRoot = pickBestContentRoot(doc) || doc.body;
+  if (!candidateRoot) {
+    return [];
+  }
+
+  const urls = [];
+  candidateRoot.querySelectorAll("img").forEach((img) => {
+    const width = Number.parseInt(img.getAttribute("width") || "0", 10);
+    const height = Number.parseInt(img.getAttribute("height") || "0", 10);
+    if ((width > 0 && width < 90) || (height > 0 && height < 90)) {
+      return;
+    }
+
+    const srcset = img.getAttribute("srcset") || "";
+    const srcCandidate = pickBestSrcsetUrl(srcset) || img.getAttribute("src") || img.getAttribute("data-src") || "";
+    const abs = toAbsoluteHttpUrl(srcCandidate, pageUrl);
+    if (abs) {
+      urls.push(abs);
+    }
+  });
+
+  return uniqueUrls(urls);
+}
+
+function pickBestContentRoot(doc) {
+  const selectors = [
+    "article [itemprop='articleBody']",
+    "article .entry-content",
+    "article .post-content",
+    "article .article-content",
+    "article .post-body",
+    "article",
+    ".entry-content",
+    ".post-content",
+    ".article-content",
+    ".post-body",
+    "main article",
+    "main"
+  ];
+
+  let bestNode = null;
+  let bestScore = 0;
+  selectors.forEach((selector) => {
+    doc.querySelectorAll(selector).forEach((node) => {
+      const score = normalizeSpace(node.textContent || "").length;
+      if (score > bestScore) {
+        bestScore = score;
+        bestNode = node;
+      }
+    });
+  });
+  return bestNode;
+}
+
+function pickBestSrcsetUrl(srcset) {
+  if (!srcset) {
+    return "";
+  }
+
+  const parts = srcset
+    .split(",")
+    .map((entry) => normalizeSpace(entry))
+    .filter(Boolean)
+    .map((entry) => {
+      const items = entry.split(/\s+/);
+      const url = items[0] || "";
+      const sizeToken = items[1] || "";
+      const size = Number.parseInt(sizeToken.replace(/[^\d]/g, ""), 10) || 0;
+      return { url, size };
+    })
+    .filter((item) => item.url);
+
+  if (parts.length === 0) {
+    return "";
+  }
+
+  parts.sort((a, b) => b.size - a.size);
+  return parts[0].url;
+}
+
+function toAbsoluteHttpUrl(maybeUrl, baseUrl) {
+  const raw = normalizeSpace(maybeUrl || "");
+  if (!raw) {
+    return "";
+  }
+
+  try {
+    const absolute = new URL(raw, baseUrl).toString();
+    return /^https?:\/\//i.test(absolute) ? absolute : "";
+  } catch {
+    return "";
+  }
+}
+
+function uniqueUrls(urls) {
+  const seen = new Set();
+  const result = [];
+  urls.forEach((url) => {
+    const normalized = normalizeSpace(url);
+    if (!normalized || seen.has(normalized)) {
+      return;
+    }
+    seen.add(normalized);
+    result.push(normalized);
+  });
+  return result;
+}
+
+async function fetchImageBlob(url) {
+  const probes = [
+    async () => fetchBlobDirect(url),
+    async () => fetchBlobViaCorsProxy(url),
+    async () => fetchBlobViaCorsProxy(url, "https://api.allorigins.win/raw?url=")
+  ];
+
+  for (const probe of probes) {
+    const blob = await probe();
+    if (blob && blob.size > 0) {
+      return blob;
+    }
+  }
+
+  return null;
+}
+
+async function fetchBlobDirect(url) {
+  try {
+    const response = await fetchWithTimeout(url, { method: "GET", mode: "cors", redirect: "follow" }, 12000);
+    if (!response.ok) {
+      return null;
+    }
+    return await response.blob();
+  } catch {
+    return null;
+  }
+}
+
+async function fetchBlobViaCorsProxy(url, prefix = "https://corsproxy.io/?") {
+  try {
+    const proxyUrl = `${prefix}${encodeURIComponent(url)}`;
+    const response = await fetchWithTimeout(proxyUrl, { method: "GET", mode: "cors" }, 12000);
+    if (!response.ok) {
+      return null;
+    }
+    return await response.blob();
+  } catch {
+    return null;
+  }
+}
+
+async function resizeImageBlobToMax(blob, maxDimension) {
+  try {
+    const bitmap = await createImageBitmap(blob);
+    const width = bitmap.width || 0;
+    const height = bitmap.height || 0;
+    if (width <= 0 || height <= 0) {
+      bitmap.close();
+      return null;
+    }
+
+    const scale = maxDimension / Math.max(width, height);
+    const targetWidth = Math.max(1, Math.round(width * scale));
+    const targetHeight = Math.max(1, Math.round(height * scale));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      bitmap.close();
+      return null;
+    }
+
+    ctx.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
+    bitmap.close();
+
+    const outType = blob.type && blob.type.startsWith("image/") ? blob.type : "image/jpeg";
+    return await new Promise((resolve) => {
+      canvas.toBlob((b) => resolve(b), outType, 0.9);
+    });
+  } catch {
+    return null;
+  }
+}
+
+function basenameFromUrl(url) {
+  try {
+    const parsed = new URL(url);
+    const raw = parsed.pathname.split("/").filter(Boolean).pop() || "image";
+    return raw.replace(/\.[^.]+$/, "");
+  } catch {
+    return "image";
+  }
+}
+
+function slugifyFilename(text) {
+  const clean = normalizeSpace(String(text || "file"))
+    .replace(/[^a-z0-9]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
+  return clean || "file";
+}
+
+function extensionFromBlobType(type) {
+  const normalized = (type || "").toLowerCase();
+  if (normalized.includes("png")) {
+    return "png";
+  }
+  if (normalized.includes("webp")) {
+    return "webp";
+  }
+  if (normalized.includes("gif")) {
+    return "gif";
+  }
+  if (normalized.includes("jpeg") || normalized.includes("jpg")) {
+    return "jpg";
+  }
+  return "jpg";
+}
+
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
 function normalizeImportUrl(input) {
@@ -725,4 +1093,8 @@ function escapeHtml(text) {
 
 function setStatus(message) {
   linkStatus.textContent = message;
+}
+
+function setThumbStatus(message) {
+  thumbStatus.textContent = message;
 }

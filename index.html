@@ -19,7 +19,9 @@
         <div class="actions">
           <input id="sourceUrl" type="url" placeholder="https://example.com/blog-post" />
           <button id="loadUrlBtn" type="button">Load from URL</button>
+          <button id="downloadThumbsBtn" type="button">Download Thumbnails ZIP</button>
         </div>
+        <p id="thumbStatus" class="hint"></p>
         <div
           id="pasteTarget"
           class="paste-target"
@@ -55,6 +57,7 @@
 
     </main>
 
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

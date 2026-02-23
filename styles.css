@@ -91,6 +91,10 @@ input[type="url"]:focus {
   margin: 12px 0;
 }
 
+#sourceUrl {
+  flex: 1 1 420px;
+}
+
 button {
   border: 1px solid var(--accent);
   background: var(--accent);
@@ -119,6 +123,11 @@ button {
 #loadUrlBtn {
   background: #9b4d00;
   border-color: #9b4d00;
+}
+
+#downloadThumbsBtn {
+  background: #0d6f63;
+  border-color: #0d6f63;
 }
 
 .preview {
