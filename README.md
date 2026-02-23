@@ -25,7 +25,7 @@ Simple static web app for cleaning pasted blog HTML before pasting into Contentf
 1. Open `index.html` in a browser (or host it).
 2. Either paste copied content into the top paste box, or paste a blog URL and click **Load from URL**.
 3. Click **Clean HTML**.
-4. Optional: click **Validate Links** to test links and unlink dead-page destinations.
+4. Optional: click **Validate Links** to test links and unlink dead-page destinations. Unconfirmed links are also unlinked.
 5. Copy from **Preview** (or click **Copy Clean Preview**) and paste into Contentful.
 6. Optional: copy URLs from **Validated Links (grouped by type)**.
 

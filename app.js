@@ -661,8 +661,8 @@ async function validateLinksInOutput() {
   }
 
   validateLinksBtn.disabled = true;
-  let removed = 0;
-  let unknown = 0;
+  let removedDead = 0;
+  let removedUnknown = 0;
   const okLinks = [];
 
   setStatus(`Validating ${links.length} links (best effort)...`);
@@ -673,9 +673,10 @@ async function validateLinksInOutput() {
       const result = await checkLinkForDeadPage(href);
       if (result === "dead") {
         link.replaceWith(...link.childNodes);
-        removed += 1;
+        removedDead += 1;
       } else if (result === "unknown") {
-        unknown += 1;
+        link.replaceWith(...link.childNodes);
+        removedUnknown += 1;
       } else if (result === "ok") {
         okLinks.push(href);
       }
@@ -685,11 +686,9 @@ async function validateLinksInOutput() {
     preview.innerHTML = currentCleanHtml;
     validatedLinks.value = formatValidatedLinksByType(okLinks);
 
-    if (unknown > 0) {
-      setStatus(`Validation done: removed ${removed} dead-page links, ${unknown} could not be confirmed.`);
-    } else {
-      setStatus(`Validation done: removed ${removed} dead-page links.`);
-    }
+    setStatus(
+      `Validation done: removed ${removedDead} dead-page links and ${removedUnknown} unconfirmed links.`
+    );
   } finally {
     validateLinksBtn.disabled = false;
   }
