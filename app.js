@@ -746,6 +746,8 @@ function isDeadPageBody(body) {
     normalizeSpace(DEAD_PAGE_MARKER).toLowerCase(),
     "page not found - everand blog",
     "page not found",
+    "status code: 404",
+    "http/2 404",
     "no longer here",
     "never existed in the first place",
     "always start over from the home page"
@@ -785,12 +787,10 @@ async function fetchAllOriginsProbe(url) {
   try {
     const endpoint = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
     const response = await fetchWithTimeout(endpoint, { method: "GET", mode: "cors" }, 10000);
-    const contentType = (response.headers.get("content-type") || "").toLowerCase();
-    const nonHtml = contentType && !contentType.includes("text/html");
-    const body = nonHtml ? "" : await response.text();
+    const body = await response.text();
     return {
       status: response.status || 0,
-      nonHtml: Boolean(nonHtml),
+      nonHtml: false,
       body
     };
   } catch {
@@ -802,12 +802,10 @@ async function fetchJinaProbe(url) {
   try {
     const endpoint = `https://r.jina.ai/http://${url.replace(/^https?:\/\//i, "")}`;
     const response = await fetchWithTimeout(endpoint, { method: "GET", mode: "cors" }, 10000);
-    const contentType = (response.headers.get("content-type") || "").toLowerCase();
-    const nonHtml = contentType && !contentType.includes("text/html");
-    const body = nonHtml ? "" : await response.text();
+    const body = await response.text();
     return {
       status: response.status || 0,
-      nonHtml: Boolean(nonHtml),
+      nonHtml: false,
       body
     };
   } catch {
