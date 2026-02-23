@@ -16,7 +16,7 @@ Simple static web app for cleaning pasted blog HTML before pasting into Contentf
 - Strips most attributes to reduce formatting noise
 - Includes a **Validate Links** action (best effort) to remove links that resolve to a known dead-page message
 - Supports URL import: paste a blog post link and auto-load extracted rich HTML into the cleaner
-- Supports thumbnail ZIP export from a blog URL: finds post images, resizes to max 300px, and downloads a ZIP named after the post title
+- Supports thumbnail ZIP export from a blog URL: finds post images, resizes each to 300px width, and downloads a ZIP named after the post title
 
 ## Use
 
@@ -30,7 +30,7 @@ Simple static web app for cleaning pasted blog HTML before pasting into Contentf
 
 1. Paste a blog post URL in the URL field.
 2. Click **Download Thumbnails ZIP**.
-3. The app fetches images in the article body, resizes each image to a max dimension of 300px, and downloads `<post-title>.zip`.
+3. The app fetches images in the article body, resizes each image to 300px width (height stays proportional), and downloads `<post-title>.zip`.
 
 ## Publish on GitHub Pages
 

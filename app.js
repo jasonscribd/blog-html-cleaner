@@ -201,7 +201,7 @@ async function downloadThumbnailsZipFromUrl() {
         continue;
       }
 
-      const resized = await resizeImageBlobToMax(blob, 300);
+      const resized = await resizeImageBlobToWidth(blob, 300);
       if (!resized) {
         failed += 1;
         continue;
@@ -433,7 +433,7 @@ async function fetchBlobViaCorsProxy(url, prefix = "https://corsproxy.io/?") {
   }
 }
 
-async function resizeImageBlobToMax(blob, maxDimension) {
+async function resizeImageBlobToWidth(blob, targetWidth) {
   try {
     const bitmap = await createImageBitmap(blob);
     const width = bitmap.width || 0;
@@ -443,20 +443,20 @@ async function resizeImageBlobToMax(blob, maxDimension) {
       return null;
     }
 
-    const scale = maxDimension / Math.max(width, height);
-    const targetWidth = Math.max(1, Math.round(width * scale));
-    const targetHeight = Math.max(1, Math.round(height * scale));
+    const scale = targetWidth / width;
+    const outputWidth = Math.max(1, Math.round(targetWidth));
+    const outputHeight = Math.max(1, Math.round(height * scale));
 
     const canvas = document.createElement("canvas");
-    canvas.width = targetWidth;
-    canvas.height = targetHeight;
+    canvas.width = outputWidth;
+    canvas.height = outputHeight;
     const ctx = canvas.getContext("2d");
     if (!ctx) {
       bitmap.close();
       return null;
     }
 
-    ctx.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
+    ctx.drawImage(bitmap, 0, 0, outputWidth, outputHeight);
     bitmap.close();
 
     const outType = blob.type && blob.type.startsWith("image/") ? blob.type : "image/jpeg";
