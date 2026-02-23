@@ -15,6 +15,7 @@ Simple static web app for cleaning pasted blog HTML before pasting into Contentf
 - Removes bold/underline tags while keeping text
 - Strips most attributes to reduce formatting noise
 - Includes a **Validate Links** action (best effort) to remove links that resolve to a known dead-page message
+- Shows a paste-ready **Validated Links** list grouped by type (Blog Links, Book Links, Other Links)
 - Supports URL import: paste a blog post link and auto-load extracted rich HTML into the cleaner
 - Supports thumbnail ZIP export from a blog URL: finds post images, resizes each to 300px width, and downloads a ZIP named after the post title
 
@@ -25,6 +26,7 @@ Simple static web app for cleaning pasted blog HTML before pasting into Contentf
 3. Click **Clean HTML**.
 4. Optional: click **Validate Links** to test links and unlink dead-page destinations.
 5. Copy from **Preview** (or click **Copy Cleaned HTML**) and paste into Contentful.
+6. Optional: copy URLs from **Validated Links (grouped by type)**.
 
 ## Thumbnail ZIP Export
 

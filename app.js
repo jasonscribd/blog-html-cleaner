@@ -9,6 +9,7 @@ const sourceUrl = document.getElementById("sourceUrl");
 const loadUrlBtn = document.getElementById("loadUrlBtn");
 const downloadThumbsBtn = document.getElementById("downloadThumbsBtn");
 const thumbStatus = document.getElementById("thumbStatus");
+const validatedLinks = document.getElementById("validatedLinks");
 
 const START_PROMPTS = ["Start Reading", "Start Listening"];
 const DEAD_PAGE_MARKER =
@@ -36,6 +37,7 @@ pasteTarget.addEventListener("paste", (event) => {
 
   currentCleanHtml = "";
   preview.innerHTML = "";
+  clearValidatedLinksOutput();
 });
 
 cleanBtn.addEventListener("click", () => {
@@ -43,6 +45,7 @@ cleanBtn.addEventListener("click", () => {
   const cleaned = cleanForContentful(source);
   currentCleanHtml = cleaned;
   preview.innerHTML = cleaned;
+  clearValidatedLinksOutput();
   setStatus("Clean complete.");
 });
 
@@ -67,6 +70,7 @@ clearBtn.addEventListener("click", () => {
   currentSourceHtml = "";
   currentCleanHtml = "";
   preview.innerHTML = "";
+  clearValidatedLinksOutput();
   setStatus("");
   setThumbStatus("");
 });
@@ -150,6 +154,7 @@ async function loadSourceFromUrl() {
     currentSourceHtml = extracted;
     currentCleanHtml = "";
     preview.innerHTML = "";
+    clearValidatedLinksOutput();
     const previewDoc = new DOMParser().parseFromString(`<body>${extracted}</body>`, "text/html");
     const previewText = normalizeSpace(previewDoc.body.textContent || "");
     pasteTarget.innerText = previewText.slice(0, 400) + (previewText.length > 400 ? "..." : "");
@@ -650,22 +655,27 @@ async function validateLinksInOutput() {
   validateLinksBtn.disabled = true;
   let removed = 0;
   let unknown = 0;
+  const okLinks = [];
 
   setStatus(`Validating ${links.length} links (best effort)...`);
 
   try {
     for (const link of links) {
-      const result = await checkLinkForDeadPage(link.getAttribute("href") || "");
+      const href = link.getAttribute("href") || "";
+      const result = await checkLinkForDeadPage(href);
       if (result === "dead") {
         link.replaceWith(...link.childNodes);
         removed += 1;
       } else if (result === "unknown") {
         unknown += 1;
+      } else if (result === "ok") {
+        okLinks.push(href);
       }
     }
 
     currentCleanHtml = sanitizeOutput(root.innerHTML);
     preview.innerHTML = currentCleanHtml;
+    validatedLinks.value = formatValidatedLinksByType(okLinks);
 
     if (unknown > 0) {
       setStatus(`Validation done: removed ${removed} dead-page links, ${unknown} could not be confirmed.`);
@@ -1070,6 +1080,65 @@ function collapseExtraBreaks(root) {
 
 function sanitizeOutput(html) {
   return html.replace(/\u00a0/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function clearValidatedLinksOutput() {
+  validatedLinks.value = "";
+}
+
+function formatValidatedLinksByType(urls) {
+  const unique = uniqueUrls(
+    urls
+      .map((url) => normalizeSpace(url))
+      .filter((url) => /^https?:\/\//i.test(url))
+  );
+
+  if (unique.length === 0) {
+    return "";
+  }
+
+  const grouped = new Map();
+  unique.forEach((url) => {
+    const type = linkTypeForUrl(url);
+    if (!grouped.has(type)) {
+      grouped.set(type, []);
+    }
+    grouped.get(type).push(url);
+  });
+
+  const output = [];
+  const orderedTypes = ["Blog Links", "Book Links", "Other Links"];
+  orderedTypes.forEach((type) => {
+    const list = grouped.get(type) || [];
+    if (list.length === 0) {
+      return;
+    }
+    output.push(`${type}:`);
+    output.push(list.join("\n"));
+  });
+
+  return output.join("\n\n");
+}
+
+function linkTypeForUrl(url) {
+  try {
+    const parsed = new URL(url);
+    const path = parsed.pathname.toLowerCase();
+    if (path.startsWith("/blog/")) {
+      return "Blog Links";
+    }
+    if (
+      path.startsWith("/audiobook/") ||
+      path.startsWith("/book/") ||
+      path.startsWith("/ebook/") ||
+      path.startsWith("/series/")
+    ) {
+      return "Book Links";
+    }
+  } catch {
+    return "Other Links";
+  }
+  return "Other Links";
 }
 
 function normalizeSpace(text) {
