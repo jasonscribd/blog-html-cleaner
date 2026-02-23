@@ -9,6 +9,8 @@ const sourceUrl = document.getElementById("sourceUrl");
 const loadUrlBtn = document.getElementById("loadUrlBtn");
 const downloadThumbsBtn = document.getElementById("downloadThumbsBtn");
 const thumbStatus = document.getElementById("thumbStatus");
+const seoTitle = document.getElementById("seoTitle");
+const seoDescription = document.getElementById("seoDescription");
 const validatedLinks = document.getElementById("validatedLinks");
 
 const START_PROMPTS = ["Start Reading", "Start Listening"];
@@ -37,6 +39,7 @@ pasteTarget.addEventListener("paste", (event) => {
 
   currentCleanHtml = "";
   preview.innerHTML = "";
+  clearSeoFields();
   clearValidatedLinksOutput();
 });
 
@@ -70,6 +73,7 @@ clearBtn.addEventListener("click", () => {
   currentSourceHtml = "";
   currentCleanHtml = "";
   preview.innerHTML = "";
+  clearSeoFields();
   clearValidatedLinksOutput();
   setStatus("");
   setThumbStatus("");
@@ -144,6 +148,9 @@ async function loadSourceFromUrl() {
       setStatus("Could not fetch the page content. Try copy/paste for this URL.");
       return;
     }
+
+    const seo = extractSeoMetadataFromRawPage(html, normalizedUrl);
+    setSeoFields(seo.title, seo.description);
 
     const extracted = extractArticleHtml(html);
     if (!extracted) {
@@ -1080,6 +1087,72 @@ function collapseExtraBreaks(root) {
 
 function sanitizeOutput(html) {
   return html.replace(/\u00a0/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function extractSeoMetadataFromRawPage(rawBody, fallbackUrl) {
+  const trimmed = (rawBody || "").trim();
+  if (!trimmed) {
+    return { title: "", description: "" };
+  }
+
+  if (!/<html|<head|<body/i.test(trimmed)) {
+    const titleMatch = trimmed.match(/^\s*Title:\s*(.+)$/im);
+    const descriptionMatch = trimmed.match(/^\s*(?:Description|SEO Description):\s*(.+)$/im);
+    return {
+      title: normalizeSpace(titleMatch?.[1] || ""),
+      description: normalizeSpace(descriptionMatch?.[1] || "")
+    };
+  }
+
+  const doc = new DOMParser().parseFromString(trimmed, "text/html");
+  const title = firstNonEmpty([
+    doc.querySelector("meta[property='og:title']")?.getAttribute("content"),
+    doc.querySelector("meta[name='twitter:title']")?.getAttribute("content"),
+    doc.querySelector("meta[name='title']")?.getAttribute("content"),
+    doc.querySelector("title")?.textContent,
+    doc.querySelector("article h1, h1")?.textContent,
+    extractPostTitle(rawBody, fallbackUrl)
+  ]);
+
+  const description = firstNonEmpty([
+    doc.querySelector("meta[name='description']")?.getAttribute("content"),
+    doc.querySelector("meta[property='og:description']")?.getAttribute("content"),
+    doc.querySelector("meta[name='twitter:description']")?.getAttribute("content"),
+    doc.querySelector("meta[name='Description']")?.getAttribute("content")
+  ]);
+
+  return {
+    title: normalizeSeoTitle(title),
+    description: normalizeSpace(description || "")
+  };
+}
+
+function firstNonEmpty(values) {
+  for (const value of values) {
+    const normalized = normalizeSpace(String(value || ""));
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return "";
+}
+
+function normalizeSeoTitle(title) {
+  const normalized = normalizeSpace(title || "");
+  if (!normalized) {
+    return "";
+  }
+  return normalized.replace(/\s*[\|\-]\s*Everand.*$/i, "").trim();
+}
+
+function setSeoFields(title, description) {
+  seoTitle.value = normalizeSpace(title || "");
+  seoDescription.value = normalizeSpace(description || "");
+}
+
+function clearSeoFields() {
+  seoTitle.value = "";
+  seoDescription.value = "";
 }
 
 function clearValidatedLinksOutput() {

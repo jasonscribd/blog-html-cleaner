@@ -17,6 +17,7 @@ Simple static web app for cleaning pasted blog HTML before pasting into Contentf
 - Includes a **Validate Links** action (best effort) to remove links that resolve to a known dead-page message
 - Shows a paste-ready **Validated Links** list grouped by type (Blog Links, Book Links, Other Links)
 - Supports URL import: paste a blog post link and auto-load extracted rich HTML into the cleaner
+- Pulls and displays `SEO Title` and `SEO Description` from the loaded blog URL
 - Supports thumbnail ZIP export from a blog URL: finds post images, resizes each to 300px width, and downloads a ZIP named after the post title
 
 ## Use
