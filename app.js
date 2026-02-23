@@ -57,14 +57,15 @@ validateLinksBtn.addEventListener("click", async () => {
 });
 
 copyBtn.addEventListener("click", async () => {
-  if (!currentCleanHtml.trim()) {
+  const previewHtml = sanitizeOutput(preview.innerHTML || "");
+  if (!previewHtml) {
     return;
   }
 
-  await navigator.clipboard.writeText(currentCleanHtml);
+  await navigator.clipboard.writeText(previewHtml);
   copyBtn.textContent = "Copied";
   setTimeout(() => {
-    copyBtn.textContent = "Copy Cleaned HTML";
+    copyBtn.textContent = "Copy Clean Preview";
   }, 1200);
 });
 
@@ -700,24 +701,119 @@ async function checkLinkForDeadPage(url) {
     return "unknown";
   }
 
-  const marker = normalizeSpace(DEAD_PAGE_MARKER).toLowerCase();
-  const probes = [fetchDirectHtml, fetchAllOriginsHtml, fetchJinaHtml];
+  const probes = [fetchDirectProbe, fetchAllOriginsProbe, fetchJinaProbe];
+  let sawConfirmedOk = false;
 
   for (const probe of probes) {
-    const html = await probe(href);
-    if (html === null) {
+    const result = await probe(href);
+    if (!result) {
       continue;
     }
 
-    if (html === "") {
-      return "ok";
+    if (result.status === 404 || result.status === 410) {
+      return "dead";
     }
 
-    const body = normalizeSpace(html.toLowerCase());
-    return body.includes(marker) ? "dead" : "ok";
+    if (result.nonHtml) {
+      if (result.status >= 200 && result.status < 400) {
+        sawConfirmedOk = true;
+      }
+      continue;
+    }
+
+    const body = normalizeSpace((result.body || "").toLowerCase());
+    if (!body) {
+      continue;
+    }
+
+    if (isChallengePageBody(body)) {
+      continue;
+    }
+
+    if (isDeadPageBody(body)) {
+      return "dead";
+    }
+
+    if (result.status >= 200 && result.status < 400) {
+      sawConfirmedOk = true;
+    }
   }
 
-  return "unknown";
+  return sawConfirmedOk ? "ok" : "unknown";
+}
+
+function isDeadPageBody(body) {
+  const deadMarkers = [
+    normalizeSpace(DEAD_PAGE_MARKER).toLowerCase(),
+    "page not found - everand blog",
+    "page not found",
+    "no longer here",
+    "never existed in the first place",
+    "always start over from the home page"
+  ];
+  return deadMarkers.some((marker) => body.includes(marker));
+}
+
+function isChallengePageBody(body) {
+  const challengeMarkers = [
+    "client challenge",
+    "just a moment",
+    "cf-challenge",
+    "captcha",
+    "access denied",
+    "security check"
+  ];
+  return challengeMarkers.some((marker) => body.includes(marker));
+}
+
+async function fetchDirectProbe(url) {
+  try {
+    const response = await fetchWithTimeout(url, { method: "GET", redirect: "follow", mode: "cors" }, 8000);
+    const contentType = (response.headers.get("content-type") || "").toLowerCase();
+    const nonHtml = !contentType.includes("text/html");
+    const body = nonHtml ? "" : await response.text();
+    return {
+      status: response.status || 0,
+      nonHtml,
+      body
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchAllOriginsProbe(url) {
+  try {
+    const endpoint = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+    const response = await fetchWithTimeout(endpoint, { method: "GET", mode: "cors" }, 10000);
+    const contentType = (response.headers.get("content-type") || "").toLowerCase();
+    const nonHtml = contentType && !contentType.includes("text/html");
+    const body = nonHtml ? "" : await response.text();
+    return {
+      status: response.status || 0,
+      nonHtml: Boolean(nonHtml),
+      body
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchJinaProbe(url) {
+  try {
+    const endpoint = `https://r.jina.ai/http://${url.replace(/^https?:\/\//i, "")}`;
+    const response = await fetchWithTimeout(endpoint, { method: "GET", mode: "cors" }, 10000);
+    const contentType = (response.headers.get("content-type") || "").toLowerCase();
+    const nonHtml = contentType && !contentType.includes("text/html");
+    const body = nonHtml ? "" : await response.text();
+    return {
+      status: response.status || 0,
+      nonHtml: Boolean(nonHtml),
+      body
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function fetchDirectHtml(url) {
