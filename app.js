@@ -1,6 +1,4 @@
 const pasteTarget = document.getElementById("pasteTarget");
-const sourceHtml = document.getElementById("sourceHtml");
-const cleanHtml = document.getElementById("cleanHtml");
 const preview = document.getElementById("preview");
 const cleanBtn = document.getElementById("cleanBtn");
 const validateLinksBtn = document.getElementById("validateLinksBtn");
@@ -15,6 +13,8 @@ const thumbStatus = document.getElementById("thumbStatus");
 const START_PROMPTS = ["Start Reading", "Start Listening"];
 const DEAD_PAGE_MARKER =
   "The page you are looking for is no longer here, or never existed in the first place (bummer).";
+let currentSourceHtml = "";
+let currentCleanHtml = "";
 
 pasteTarget.addEventListener("paste", (event) => {
   const html = event.clipboardData?.getData("text/html");
@@ -27,17 +27,21 @@ pasteTarget.addEventListener("paste", (event) => {
   event.preventDefault();
 
   if (html) {
-    sourceHtml.value = html;
+    currentSourceHtml = html;
     pasteTarget.innerText = text || "Pasted rich text captured.";
   } else {
-    sourceHtml.value = textToHtml(text);
+    currentSourceHtml = textToHtml(text);
     pasteTarget.innerText = text;
   }
+
+  currentCleanHtml = "";
+  preview.innerHTML = "";
 });
 
 cleanBtn.addEventListener("click", () => {
-  const cleaned = cleanForContentful(sourceHtml.value);
-  cleanHtml.value = cleaned;
+  const source = currentSourceHtml || pasteTarget.innerHTML || "";
+  const cleaned = cleanForContentful(source);
+  currentCleanHtml = cleaned;
   preview.innerHTML = cleaned;
   setStatus("Clean complete.");
 });
@@ -47,23 +51,24 @@ validateLinksBtn.addEventListener("click", async () => {
 });
 
 copyBtn.addEventListener("click", async () => {
-  if (!cleanHtml.value.trim()) {
+  if (!currentCleanHtml.trim()) {
     return;
   }
 
-  await navigator.clipboard.writeText(cleanHtml.value);
+  await navigator.clipboard.writeText(currentCleanHtml);
   copyBtn.textContent = "Copied";
   setTimeout(() => {
-    copyBtn.textContent = "Copy Clean HTML";
+    copyBtn.textContent = "Copy Cleaned HTML";
   }, 1200);
 });
 
 clearBtn.addEventListener("click", () => {
   pasteTarget.innerHTML = "";
-  sourceHtml.value = "";
-  cleanHtml.value = "";
+  currentSourceHtml = "";
+  currentCleanHtml = "";
   preview.innerHTML = "";
   setStatus("");
+  setThumbStatus("");
 });
 
 loadUrlBtn.addEventListener("click", async () => {
@@ -142,7 +147,9 @@ async function loadSourceFromUrl() {
       return;
     }
 
-    sourceHtml.value = extracted;
+    currentSourceHtml = extracted;
+    currentCleanHtml = "";
+    preview.innerHTML = "";
     const previewDoc = new DOMParser().parseFromString(`<body>${extracted}</body>`, "text/html");
     const previewText = normalizeSpace(previewDoc.body.textContent || "");
     pasteTarget.innerText = previewText.slice(0, 400) + (previewText.length > 400 ? "..." : "");
@@ -624,7 +631,7 @@ function removeNoiseNodes(rootNode) {
 }
 
 async function validateLinksInOutput() {
-  const current = cleanHtml.value.trim();
+  const current = currentCleanHtml.trim();
   if (!current) {
     setStatus("Clean HTML first, then run link validation.");
     return;
@@ -657,8 +664,8 @@ async function validateLinksInOutput() {
       }
     }
 
-    cleanHtml.value = sanitizeOutput(root.innerHTML);
-    preview.innerHTML = cleanHtml.value;
+    currentCleanHtml = sanitizeOutput(root.innerHTML);
+    preview.innerHTML = currentCleanHtml;
 
     if (unknown > 0) {
       setStatus(`Validation done: removed ${removed} dead-page links, ${unknown} could not be confirmed.`);
