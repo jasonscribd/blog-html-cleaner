@@ -15,7 +15,6 @@ Simple static web app for cleaning pasted blog HTML before pasting into Contentf
 - Removes bold/underline tags while keeping text
 - Strips most attributes to reduce formatting noise
 - Includes a **Validate Links** action (best effort) to remove links that resolve to a known dead-page message
-- Supports spreadsheet batch cleaning: upload CSV/XLSX, choose a source column, and download cleaned output
 - Supports URL import: paste a blog post link and auto-load extracted rich HTML into the cleaner
 
 ## Use
@@ -25,13 +24,6 @@ Simple static web app for cleaning pasted blog HTML before pasting into Contentf
 3. Click **Clean HTML**.
 4. Optional: click **Validate Links** to test links and unlink dead-page destinations.
 5. Copy from **Clean HTML for Contentful** and paste into Contentful.
-
-## Batch Spreadsheet Use
-
-1. In **Spreadsheet Batch Cleaner**, upload a `.csv`, `.xlsx`, or `.xls` file.
-2. Select the column that contains source blog HTML.
-3. Click **Clean Spreadsheet**.
-4. Click **Download Cleaned File** to export an `.xlsx` with a new `<column>_cleaned` field.
 
 ## Publish on GitHub Pages
 

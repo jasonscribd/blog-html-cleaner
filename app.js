@@ -9,22 +9,10 @@ const clearBtn = document.getElementById("clearBtn");
 const linkStatus = document.getElementById("linkStatus");
 const sourceUrl = document.getElementById("sourceUrl");
 const loadUrlBtn = document.getElementById("loadUrlBtn");
-const sheetFile = document.getElementById("sheetFile");
-const sheetColumn = document.getElementById("sheetColumn");
-const cleanSheetBtn = document.getElementById("cleanSheetBtn");
-const downloadSheetBtn = document.getElementById("downloadSheetBtn");
-const sheetStatus = document.getElementById("sheetStatus");
 
 const START_PROMPTS = ["Start Reading", "Start Listening"];
 const DEAD_PAGE_MARKER =
   "The page you are looking for is no longer here, or never existed in the first place (bummer).";
-const XLSX_LIBRARY_ERROR = "Spreadsheet support failed to load. Refresh and try again.";
-
-let uploadedSheetRows = [];
-let uploadedSheetHeaders = [];
-let uploadedSheetName = "cleaned-output";
-let processedSheetRows = [];
-let processedSheetHeaders = [];
 
 pasteTarget.addEventListener("paste", (event) => {
   const html = event.clipboardData?.getData("text/html");
@@ -79,20 +67,6 @@ clearBtn.addEventListener("click", () => {
 loadUrlBtn.addEventListener("click", async () => {
   await loadSourceFromUrl();
 });
-
-sheetFile.addEventListener("change", async (event) => {
-  await loadSpreadsheet(event.target.files?.[0] || null);
-});
-
-cleanSheetBtn.addEventListener("click", () => {
-  cleanSpreadsheetRows();
-});
-
-downloadSheetBtn.addEventListener("click", () => {
-  downloadProcessedSpreadsheet();
-});
-
-downloadSheetBtn.disabled = true;
 
 function cleanForContentful(input) {
   const parser = new DOMParser();
@@ -279,119 +253,6 @@ function removeNoiseNodes(rootNode) {
       "script,style,noscript,iframe,svg,canvas,form,nav,footer,header,aside,.newsletter,.subscribe,.related,.share,.social,.breadcrumbs,.author-bio"
     )
     .forEach((el) => el.remove());
-}
-
-async function loadSpreadsheet(file) {
-  if (!file) {
-    setSheetStatus("Choose a spreadsheet file first.");
-    return;
-  }
-
-  if (typeof XLSX === "undefined") {
-    setSheetStatus(XLSX_LIBRARY_ERROR);
-    return;
-  }
-
-  try {
-    const buffer = await file.arrayBuffer();
-    const workbook = XLSX.read(buffer, { type: "array" });
-    const firstSheetName = workbook.SheetNames[0];
-    const firstSheet = workbook.Sheets[firstSheetName];
-    const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: "" });
-
-    if (rows.length < 2) {
-      setSheetStatus("Spreadsheet has no data rows.");
-      return;
-    }
-
-    const rawHeaders = rows[0].map((value, index) => {
-      const header = normalizeSpace(String(value || ""));
-      return header || `Column_${index + 1}`;
-    });
-
-    uploadedSheetHeaders = makeUniqueHeaders(rawHeaders);
-    uploadedSheetRows = rows.slice(1).map((rowValues) => {
-      const rowObject = {};
-      uploadedSheetHeaders.forEach((header, index) => {
-        rowObject[header] = rowValues[index] === undefined ? "" : String(rowValues[index]);
-      });
-      return rowObject;
-    });
-
-    uploadedSheetName = file.name.replace(/\.[^.]+$/, "") || "cleaned-output";
-    processedSheetRows = [];
-    processedSheetHeaders = [];
-    downloadSheetBtn.disabled = true;
-    populateSheetColumnOptions(uploadedSheetHeaders);
-    setSheetStatus(`Loaded ${uploadedSheetRows.length} rows from ${file.name}.`);
-  } catch {
-    setSheetStatus("Could not read that spreadsheet. Try CSV or XLSX.");
-  }
-}
-
-function makeUniqueHeaders(headers) {
-  const seen = new Map();
-  return headers.map((header) => {
-    const count = seen.get(header) || 0;
-    seen.set(header, count + 1);
-    return count === 0 ? header : `${header}_${count + 1}`;
-  });
-}
-
-function populateSheetColumnOptions(headers) {
-  sheetColumn.innerHTML = "";
-  headers.forEach((header) => {
-    const option = document.createElement("option");
-    option.value = header;
-    option.textContent = header;
-    sheetColumn.appendChild(option);
-  });
-}
-
-function cleanSpreadsheetRows() {
-  const selectedColumn = sheetColumn.value;
-  if (!selectedColumn) {
-    setSheetStatus("Select a column to clean.");
-    return;
-  }
-
-  if (uploadedSheetRows.length === 0) {
-    setSheetStatus("Upload a spreadsheet first.");
-    return;
-  }
-
-  const cleanedColumn = `${selectedColumn}_cleaned`;
-  processedSheetRows = uploadedSheetRows.map((row) => {
-    const source = row[selectedColumn] || "";
-    return {
-      ...row,
-      [cleanedColumn]: cleanForContentful(source)
-    };
-  });
-
-  processedSheetHeaders = [...uploadedSheetHeaders, cleanedColumn];
-  downloadSheetBtn.disabled = false;
-  setSheetStatus(`Cleaned ${processedSheetRows.length} rows. Ready to download.`);
-}
-
-function downloadProcessedSpreadsheet() {
-  if (typeof XLSX === "undefined") {
-    setSheetStatus(XLSX_LIBRARY_ERROR);
-    return;
-  }
-
-  if (processedSheetRows.length === 0) {
-    setSheetStatus("Clean a spreadsheet first.");
-    return;
-  }
-
-  const worksheet = XLSX.utils.json_to_sheet(processedSheetRows, {
-    header: processedSheetHeaders
-  });
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Cleaned");
-  XLSX.writeFile(workbook, `${uploadedSheetName}-cleaned.xlsx`);
-  setSheetStatus("Download created.");
 }
 
 async function validateLinksInOutput() {
@@ -864,8 +725,4 @@ function escapeHtml(text) {
 
 function setStatus(message) {
   linkStatus.textContent = message;
-}
-
-function setSheetStatus(message) {
-  sheetStatus.textContent = message;
 }

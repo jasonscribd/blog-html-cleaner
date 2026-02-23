@@ -53,22 +53,8 @@
         <div id="preview" class="preview"></div>
       </section>
 
-      <section class="panel">
-        <h2>Spreadsheet Batch Cleaner</h2>
-        <p class="hint">Upload a CSV/XLSX file, select the column with source HTML, then download a cleaned spreadsheet.</p>
-        <label for="sheetFile">Spreadsheet file</label>
-        <input id="sheetFile" type="file" accept=".csv,.xlsx,.xls" />
-        <label for="sheetColumn">Column to clean</label>
-        <select id="sheetColumn"></select>
-        <div class="actions">
-          <button id="cleanSheetBtn" type="button">Clean Spreadsheet</button>
-          <button id="downloadSheetBtn" type="button">Download Cleaned File</button>
-        </div>
-        <p id="sheetStatus" class="hint"></p>
-      </section>
     </main>
 
-    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
