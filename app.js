@@ -664,6 +664,7 @@ async function validateLinksInOutput() {
   let removedDead = 0;
   let removedUnknown = 0;
   const okLinks = [];
+  const removedLinks = [];
 
   setStatus(`Validating ${links.length} links (best effort)...`);
 
@@ -674,9 +675,11 @@ async function validateLinksInOutput() {
       if (result === "dead") {
         link.replaceWith(...link.childNodes);
         removedDead += 1;
+        removedLinks.push(href);
       } else if (result === "unknown") {
         link.replaceWith(...link.childNodes);
         removedUnknown += 1;
+        removedLinks.push(href);
       } else if (result === "ok") {
         okLinks.push(href);
       }
@@ -684,7 +687,7 @@ async function validateLinksInOutput() {
 
     currentCleanHtml = sanitizeOutput(root.innerHTML);
     preview.innerHTML = currentCleanHtml;
-    validatedLinks.value = formatValidatedLinksByType(okLinks);
+    validatedLinks.value = formatValidatedLinksByType(okLinks, removedLinks);
 
     setStatus(
       `Validation done: removed ${removedDead} dead-page links and ${removedUnknown} unconfirmed links.`
@@ -1252,19 +1255,24 @@ function clearValidatedLinksOutput() {
   validatedLinks.value = "";
 }
 
-function formatValidatedLinksByType(urls) {
-  const unique = uniqueUrls(
+function formatValidatedLinksByType(urls, removedUrls = []) {
+  const uniqueOk = uniqueUrls(
     urls
       .map((url) => normalizeSpace(url))
       .filter((url) => /^https?:\/\//i.test(url))
   );
+  const uniqueRemoved = uniqueUrls(
+    removedUrls
+      .map((url) => normalizeSpace(url))
+      .filter((url) => /^https?:\/\//i.test(url))
+  );
 
-  if (unique.length === 0) {
+  if (uniqueOk.length === 0 && uniqueRemoved.length === 0) {
     return "";
   }
 
   const grouped = new Map();
-  unique.forEach((url) => {
+  uniqueOk.forEach((url) => {
     const type = linkTypeForUrl(url);
     if (!grouped.has(type)) {
       grouped.set(type, []);
@@ -1282,6 +1290,11 @@ function formatValidatedLinksByType(urls) {
     output.push(`${type}:`);
     output.push(list.join("\n"));
   });
+
+  if (uniqueRemoved.length > 0) {
+    output.push("Removed Links:");
+    output.push(uniqueRemoved.join("\n"));
+  }
 
   return output.join("\n\n");
 }
