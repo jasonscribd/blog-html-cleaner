@@ -192,6 +192,12 @@ async function loadSourceFromUrl() {
     pasteTarget.innerText = previewText.slice(0, 400) + (previewText.length > 400 ? "..." : "");
 
     currentHeaderImageUrl = extractHeaderImageUrl(html, normalizedUrl);
+    if (!currentHeaderImageUrl) {
+      const thumbHtml = await fetchPageForThumbnails(normalizedUrl);
+      if (thumbHtml) {
+        currentHeaderImageUrl = extractHeaderImageUrl(thumbHtml, normalizedUrl);
+      }
+    }
     downloadHeaderBtn.style.display = currentHeaderImageUrl ? "" : "none";
 
     setStatus("Loaded source HTML from URL.");
@@ -362,21 +368,34 @@ function extractThumbnailImageUrls(rawBody, pageUrl) {
   return uniqueUrls(urls);
 }
 
-function extractHeaderImageUrl(rawHtml, pageUrl) {
-  if (!rawHtml) {
+function extractHeaderImageUrl(rawBody, pageUrl) {
+  if (!rawBody) {
     return "";
   }
-  const doc = new DOMParser().parseFromString(rawHtml, "text/html");
   const candidates = [];
-  doc.querySelectorAll("img").forEach((img) => {
-    const src = img.getAttribute("src") || img.getAttribute("data-src") || "";
-    if (/article-header/i.test(src)) {
-      const abs = toAbsoluteHttpUrl(src, pageUrl);
-      if (abs) {
-        candidates.push(abs);
+
+  // Search HTML <img> tags
+  if (/<html|<head|<body|<img/i.test(rawBody)) {
+    const doc = new DOMParser().parseFromString(rawBody, "text/html");
+    doc.querySelectorAll("img").forEach((img) => {
+      const src = img.getAttribute("src") || img.getAttribute("data-src") || "";
+      if (/article-header/i.test(src)) {
+        const abs = toAbsoluteHttpUrl(src, pageUrl);
+        if (abs) {
+          candidates.push(abs);
+        }
       }
+    });
+  }
+
+  // Search markdown image syntax: ![alt](url)
+  const mdMatches = rawBody.matchAll(/!\[[^\]]*]\((https?:\/\/[^)\s]*article-header[^)\s]*)\)/gi);
+  for (const m of mdMatches) {
+    if (m[1] && !candidates.includes(m[1])) {
+      candidates.push(m[1]);
     }
-  });
+  }
+
   if (candidates.length === 0) {
     return "";
   }
