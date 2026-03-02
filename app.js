@@ -651,9 +651,9 @@ async function validateLinksInOutput() {
 
   validateLinksBtn.disabled = true;
   let removedDead = 0;
-  let removedUnknown = 0;
   const okLinks = [];
   const removedLinks = [];
+  const unconfirmedLinks = [];
 
   setStatus(`Validating ${links.length} links (best effort)...`);
 
@@ -673,9 +673,7 @@ async function validateLinksInOutput() {
         removedDead += 1;
         removedLinks.push(href);
       } else if (result === "unknown") {
-        link.replaceWith(...link.childNodes);
-        removedUnknown += 1;
-        removedLinks.push(href);
+        unconfirmedLinks.push(href);
       } else if (result === "ok") {
         okLinks.push(href);
       }
@@ -683,11 +681,13 @@ async function validateLinksInOutput() {
 
     currentCleanHtml = sanitizeOutput(root.innerHTML);
     preview.innerHTML = currentCleanHtml;
-    validatedLinks.value = formatValidatedLinksByType(okLinks, removedLinks);
+    validatedLinks.value = formatValidatedLinksByType(okLinks, removedLinks, unconfirmedLinks);
 
-    setStatus(
-      `Validation done: removed ${removedDead} dead-page links and ${removedUnknown} unconfirmed links.`
-    );
+    const parts = [`removed ${removedDead} dead link${removedDead !== 1 ? "s" : ""}`];
+    if (unconfirmedLinks.length > 0) {
+      parts.push(`${unconfirmedLinks.length} unconfirmed (kept)`);
+    }
+    setStatus(`Validation done: ${parts.join(", ")}.`);
   } finally {
     validateLinksBtn.disabled = false;
   }
@@ -729,6 +729,9 @@ async function checkLinkForDeadPage(url) {
     }
 
     if (isChallengePageBody(body)) {
+      if (result.status >= 200 && result.status < 400) {
+        sawConfirmedOk = true;
+      }
       continue;
     }
 
@@ -1272,7 +1275,7 @@ function clearValidatedLinksOutput() {
   validatedLinks.value = "";
 }
 
-function formatValidatedLinksByType(urls, removedUrls = []) {
+function formatValidatedLinksByType(urls, removedUrls = [], unconfirmedUrls = []) {
   const uniqueOk = uniqueUrls(
     urls
       .map((url) => normalizeSpace(url))
@@ -1283,8 +1286,13 @@ function formatValidatedLinksByType(urls, removedUrls = []) {
       .map((url) => normalizeSpace(url))
       .filter((url) => /^https?:\/\//i.test(url))
   );
+  const uniqueUnconfirmed = uniqueUrls(
+    unconfirmedUrls
+      .map((url) => normalizeSpace(url))
+      .filter((url) => /^https?:\/\//i.test(url))
+  );
 
-  if (uniqueOk.length === 0 && uniqueRemoved.length === 0) {
+  if (uniqueOk.length === 0 && uniqueRemoved.length === 0 && uniqueUnconfirmed.length === 0) {
     return "";
   }
 
@@ -1307,6 +1315,11 @@ function formatValidatedLinksByType(urls, removedUrls = []) {
     output.push(`${type}:`);
     output.push(list.join("\n"));
   });
+
+  if (uniqueUnconfirmed.length > 0) {
+    output.push("Unconfirmed Links (kept — could not verify, please spot-check):");
+    output.push(uniqueUnconfirmed.join("\n"));
+  }
 
   if (uniqueRemoved.length > 0) {
     output.push("Removed Links:");
