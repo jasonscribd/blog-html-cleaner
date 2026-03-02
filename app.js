@@ -8,6 +8,7 @@ const linkStatus = document.getElementById("linkStatus");
 const sourceUrl = document.getElementById("sourceUrl");
 const loadUrlBtn = document.getElementById("loadUrlBtn");
 const downloadThumbsBtn = document.getElementById("downloadThumbsBtn");
+const downloadHeaderBtn = document.getElementById("downloadHeaderBtn");
 const thumbStatus = document.getElementById("thumbStatus");
 const seoTitle = document.getElementById("seoTitle");
 const seoDescription = document.getElementById("seoDescription");
@@ -33,6 +34,7 @@ const CONTENT_SELECTORS = [
 const fetchHtmlCache = new Map();
 let currentSourceHtml = "";
 let currentCleanHtml = "";
+let currentHeaderImageUrl = "";
 
 pasteTarget.addEventListener("paste", (event) => {
   const html = event.clipboardData?.getData("text/html");
@@ -88,6 +90,8 @@ clearBtn.addEventListener("click", () => {
   pasteTarget.innerHTML = "";
   currentSourceHtml = "";
   currentCleanHtml = "";
+  currentHeaderImageUrl = "";
+  downloadHeaderBtn.style.display = "none";
   preview.innerHTML = "";
   clearSeoFields();
   clearValidatedLinksOutput();
@@ -102,6 +106,10 @@ loadUrlBtn.addEventListener("click", async () => {
 
 downloadThumbsBtn.addEventListener("click", async () => {
   await downloadThumbnailsZipFromUrl();
+});
+
+downloadHeaderBtn.addEventListener("click", async () => {
+  await downloadHeaderImage();
 });
 
 function cleanForContentful(input) {
@@ -182,6 +190,10 @@ async function loadSourceFromUrl() {
     const previewDoc = new DOMParser().parseFromString(`<body>${extracted}</body>`, "text/html");
     const previewText = normalizeSpace(previewDoc.body.textContent || "");
     pasteTarget.innerText = previewText.slice(0, 400) + (previewText.length > 400 ? "..." : "");
+
+    currentHeaderImageUrl = extractHeaderImageUrl(html, normalizedUrl);
+    downloadHeaderBtn.style.display = currentHeaderImageUrl ? "" : "none";
+
     setStatus("Loaded source HTML from URL.");
   } finally {
     loadUrlBtn.disabled = false;
@@ -348,6 +360,50 @@ function extractThumbnailImageUrls(rawBody, pageUrl) {
   });
 
   return uniqueUrls(urls);
+}
+
+function extractHeaderImageUrl(rawHtml, pageUrl) {
+  if (!rawHtml) {
+    return "";
+  }
+  const doc = new DOMParser().parseFromString(rawHtml, "text/html");
+  const candidates = [];
+  doc.querySelectorAll("img").forEach((img) => {
+    const src = img.getAttribute("src") || img.getAttribute("data-src") || "";
+    if (/article-header/i.test(src)) {
+      const abs = toAbsoluteHttpUrl(src, pageUrl);
+      if (abs) {
+        candidates.push(abs);
+      }
+    }
+  });
+  if (candidates.length === 0) {
+    return "";
+  }
+  const preferred = candidates.find((u) => /1440|@2x/i.test(u));
+  return preferred || candidates[0];
+}
+
+async function downloadHeaderImage() {
+  if (!currentHeaderImageUrl) {
+    setThumbStatus("No header image found.");
+    return;
+  }
+  downloadHeaderBtn.disabled = true;
+  setThumbStatus("Downloading header image...");
+  try {
+    const blob = await fetchImageBlob(currentHeaderImageUrl);
+    if (!blob) {
+      setThumbStatus("Could not fetch header image (blocked by host/CORS).");
+      return;
+    }
+    const ext = extensionFromBlobType(blob.type) || "jpg";
+    const name = `${basenameFromUrl(currentHeaderImageUrl)}.${ext}`;
+    triggerDownload(blob, name);
+    setThumbStatus(`Downloaded header image: ${name}`);
+  } finally {
+    downloadHeaderBtn.disabled = false;
+  }
 }
 
 function pickBestContentRoot(doc) {
