@@ -130,12 +130,6 @@ button {
   border-color: #0d6f63;
 }
 
-#downloadHeaderBtn {
-  background: #7b2d8e;
-  border-color: #7b2d8e;
-  display: none;
-}
-
 .preview {
   border: 1px dashed var(--line);
   border-radius: 8px;

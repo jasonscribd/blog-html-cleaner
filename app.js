@@ -8,7 +8,6 @@ const linkStatus = document.getElementById("linkStatus");
 const sourceUrl = document.getElementById("sourceUrl");
 const loadUrlBtn = document.getElementById("loadUrlBtn");
 const downloadThumbsBtn = document.getElementById("downloadThumbsBtn");
-const downloadHeaderBtn = document.getElementById("downloadHeaderBtn");
 const thumbStatus = document.getElementById("thumbStatus");
 const seoTitle = document.getElementById("seoTitle");
 const seoDescription = document.getElementById("seoDescription");
@@ -34,7 +33,6 @@ const CONTENT_SELECTORS = [
 const fetchHtmlCache = new Map();
 let currentSourceHtml = "";
 let currentCleanHtml = "";
-let currentHeaderImageUrl = "";
 
 pasteTarget.addEventListener("paste", (event) => {
   const html = event.clipboardData?.getData("text/html");
@@ -90,8 +88,6 @@ clearBtn.addEventListener("click", () => {
   pasteTarget.innerHTML = "";
   currentSourceHtml = "";
   currentCleanHtml = "";
-  currentHeaderImageUrl = "";
-  downloadHeaderBtn.style.display = "none";
   preview.innerHTML = "";
   clearSeoFields();
   clearValidatedLinksOutput();
@@ -106,10 +102,6 @@ loadUrlBtn.addEventListener("click", async () => {
 
 downloadThumbsBtn.addEventListener("click", async () => {
   await downloadThumbnailsZipFromUrl();
-});
-
-downloadHeaderBtn.addEventListener("click", async () => {
-  await downloadHeaderImage();
 });
 
 function cleanForContentful(input) {
@@ -191,15 +183,6 @@ async function loadSourceFromUrl() {
     const previewText = normalizeSpace(previewDoc.body.textContent || "");
     pasteTarget.innerText = previewText.slice(0, 400) + (previewText.length > 400 ? "..." : "");
 
-    currentHeaderImageUrl = extractHeaderImageUrl(html, normalizedUrl);
-    if (!currentHeaderImageUrl) {
-      const thumbHtml = await fetchPageForThumbnails(normalizedUrl);
-      if (thumbHtml) {
-        currentHeaderImageUrl = extractHeaderImageUrl(thumbHtml, normalizedUrl);
-      }
-    }
-    downloadHeaderBtn.style.display = currentHeaderImageUrl ? "" : "none";
-
     setStatus("Loaded source HTML from URL.");
   } finally {
     loadUrlBtn.disabled = false;
@@ -253,10 +236,11 @@ async function downloadThumbnailsZipFromUrl() {
         setThumbStatus(`Processing ${processed}/${imageUrls.length}...`);
         return null;
       }
-      const resized = await resizeImageBlobToWidth(blob, 300);
+      const isHeader = /article-header/i.test(imageUrl);
+      const final = isHeader ? blob : await resizeImageBlobToWidth(blob, 300);
       processed++;
       setThumbStatus(`Processing ${processed}/${imageUrls.length}...`);
-      return resized ? { resized, imageUrl } : null;
+      return final ? { resized: final, imageUrl } : null;
     });
 
     for (const result of imageResults) {
@@ -366,63 +350,6 @@ function extractThumbnailImageUrls(rawBody, pageUrl) {
   });
 
   return uniqueUrls(urls);
-}
-
-function extractHeaderImageUrl(rawBody, pageUrl) {
-  if (!rawBody) {
-    return "";
-  }
-  const candidates = [];
-
-  // Search HTML <img> tags
-  if (/<html|<head|<body|<img/i.test(rawBody)) {
-    const doc = new DOMParser().parseFromString(rawBody, "text/html");
-    doc.querySelectorAll("img").forEach((img) => {
-      const src = img.getAttribute("src") || img.getAttribute("data-src") || "";
-      if (/article-header/i.test(src)) {
-        const abs = toAbsoluteHttpUrl(src, pageUrl);
-        if (abs) {
-          candidates.push(abs);
-        }
-      }
-    });
-  }
-
-  // Search markdown image syntax: ![alt](url)
-  const mdMatches = rawBody.matchAll(/!\[[^\]]*]\((https?:\/\/[^)\s]*article-header[^)\s]*)\)/gi);
-  for (const m of mdMatches) {
-    if (m[1] && !candidates.includes(m[1])) {
-      candidates.push(m[1]);
-    }
-  }
-
-  if (candidates.length === 0) {
-    return "";
-  }
-  const preferred = candidates.find((u) => /1440|@2x/i.test(u));
-  return preferred || candidates[0];
-}
-
-async function downloadHeaderImage() {
-  if (!currentHeaderImageUrl) {
-    setThumbStatus("No header image found.");
-    return;
-  }
-  downloadHeaderBtn.disabled = true;
-  setThumbStatus("Downloading header image...");
-  try {
-    const blob = await fetchImageBlob(currentHeaderImageUrl);
-    if (!blob) {
-      setThumbStatus("Could not fetch header image (blocked by host/CORS).");
-      return;
-    }
-    const ext = extensionFromBlobType(blob.type) || "jpg";
-    const name = `${basenameFromUrl(currentHeaderImageUrl)}.${ext}`;
-    triggerDownload(blob, name);
-    setThumbStatus(`Downloaded header image: ${name}`);
-  } finally {
-    downloadHeaderBtn.disabled = false;
-  }
 }
 
 function pickBestContentRoot(doc) {
