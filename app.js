@@ -16,6 +16,21 @@ const validatedLinks = document.getElementById("validatedLinks");
 const START_PROMPTS = ["Start Reading", "Start Listening"];
 const DEAD_PAGE_MARKER =
   "The page you are looking for is no longer here, or never existed in the first place (bummer).";
+const CONTENT_SELECTORS = [
+  "article [itemprop='articleBody']",
+  "article .entry-content",
+  "article .post-content",
+  "article .article-content",
+  "article .post-body",
+  "article",
+  ".entry-content",
+  ".post-content",
+  ".article-content",
+  ".post-body",
+  "main article",
+  "main"
+];
+const fetchHtmlCache = new Map();
 let currentSourceHtml = "";
 let currentCleanHtml = "";
 
@@ -76,6 +91,7 @@ clearBtn.addEventListener("click", () => {
   preview.innerHTML = "";
   clearSeoFields();
   clearValidatedLinksOutput();
+  fetchHtmlCache.clear();
   setStatus("");
   setThumbStatus("");
 });
@@ -210,26 +226,29 @@ async function downloadThumbnailsZipFromUrl() {
     const zip = new JSZip();
     let added = 0;
     let failed = 0;
+    let processed = 0;
 
-    for (let i = 0; i < imageUrls.length; i += 1) {
-      const imageUrl = imageUrls[i];
-      setThumbStatus(`Processing ${i + 1}/${imageUrls.length}...`);
-
+    const imageResults = await processInBatches(imageUrls, 4, async (imageUrl) => {
       const blob = await fetchImageBlob(imageUrl);
       if (!blob) {
-        failed += 1;
-        continue;
+        processed++;
+        setThumbStatus(`Processing ${processed}/${imageUrls.length}...`);
+        return null;
       }
-
       const resized = await resizeImageBlobToWidth(blob, 300);
-      if (!resized) {
+      processed++;
+      setThumbStatus(`Processing ${processed}/${imageUrls.length}...`);
+      return resized ? { resized, imageUrl } : null;
+    });
+
+    for (const result of imageResults) {
+      if (!result) {
         failed += 1;
         continue;
       }
-
-      const ext = extensionFromBlobType(resized.type) || "jpg";
-      const fileName = `${String(added + 1).padStart(2, "0")}-${slugifyFilename(basenameFromUrl(imageUrl))}.${ext}`;
-      zip.file(fileName, resized);
+      const ext = extensionFromBlobType(result.resized.type) || "jpg";
+      const fileName = `${String(added + 1).padStart(2, "0")}-${slugifyFilename(basenameFromUrl(result.imageUrl))}.${ext}`;
+      zip.file(fileName, result.resized);
       added += 1;
     }
 
@@ -253,14 +272,18 @@ async function downloadThumbnailsZipFromUrl() {
 }
 
 async function fetchPageForThumbnails(url) {
-  const probes = [fetchDirectHtmlForImport, fetchAllOriginsHtml, fetchCorsProxyHtml, fetchJinaHtml];
-  for (const probe of probes) {
-    const body = await probe(url);
-    if (body && body.trim()) {
-      return body;
-    }
+  if (fetchHtmlCache.has(url)) {
+    return fetchHtmlCache.get(url);
   }
-  return "";
+  const body = await raceForFirstValid(
+    [() => fetchDirectHtmlForImport(url), () => fetchAllOriginsHtml(url), () => fetchCorsProxyHtml(url), () => fetchJinaHtml(url)],
+    (result) => result && result.trim(),
+    ""
+  );
+  if (body) {
+    fetchHtmlCache.set(url, body);
+  }
+  return body;
 }
 
 function extractPostTitle(rawBody, fallbackUrl) {
@@ -328,24 +351,9 @@ function extractThumbnailImageUrls(rawBody, pageUrl) {
 }
 
 function pickBestContentRoot(doc) {
-  const selectors = [
-    "article [itemprop='articleBody']",
-    "article .entry-content",
-    "article .post-content",
-    "article .article-content",
-    "article .post-body",
-    "article",
-    ".entry-content",
-    ".post-content",
-    ".article-content",
-    ".post-body",
-    "main article",
-    "main"
-  ];
-
   let bestNode = null;
   let bestScore = 0;
-  selectors.forEach((selector) => {
+  CONTENT_SELECTORS.forEach((selector) => {
     doc.querySelectorAll(selector).forEach((node) => {
       const score = normalizeSpace(node.textContent || "").length;
       if (score > bestScore) {
@@ -412,20 +420,15 @@ function uniqueUrls(urls) {
 }
 
 async function fetchImageBlob(url) {
-  const probes = [
-    async () => fetchBlobDirect(url),
-    async () => fetchBlobViaCorsProxy(url),
-    async () => fetchBlobViaCorsProxy(url, "https://api.allorigins.win/raw?url=")
-  ];
-
-  for (const probe of probes) {
-    const blob = await probe();
-    if (blob && blob.size > 0) {
-      return blob;
-    }
-  }
-
-  return null;
+  return await raceForFirstValid(
+    [
+      () => fetchBlobDirect(url),
+      () => fetchBlobViaCorsProxy(url),
+      () => fetchBlobViaCorsProxy(url, "https://api.allorigins.win/raw?url=")
+    ],
+    (blob) => blob && blob.size > 0,
+    null
+  );
 }
 
 async function fetchBlobDirect(url) {
@@ -548,17 +551,18 @@ function normalizeImportUrl(input) {
 }
 
 async function fetchImportHtml(url) {
-  const probes = [fetchDirectHtmlForImport, fetchAllOriginsHtml, fetchCorsProxyHtml];
-  for (const probe of probes) {
-    const html = await probe(url);
-    if (!html || !html.trim()) {
-      continue;
-    }
-    if (/<html|<article|<body/i.test(html)) {
-      return html;
-    }
+  if (fetchHtmlCache.has(url)) {
+    return fetchHtmlCache.get(url);
   }
-  return "";
+  const html = await raceForFirstValid(
+    [() => fetchDirectHtmlForImport(url), () => fetchAllOriginsHtml(url), () => fetchCorsProxyHtml(url)],
+    (result) => result && result.trim() && /<html|<article|<body/i.test(result),
+    ""
+  );
+  if (html) {
+    fetchHtmlCache.set(url, html);
+  }
+  return html;
 }
 
 async function fetchDirectHtmlForImport(url) {
@@ -592,23 +596,8 @@ async function fetchCorsProxyHtml(url) {
 
 function extractArticleHtml(rawHtml) {
   const doc = new DOMParser().parseFromString(rawHtml, "text/html");
-  const contentSelectors = [
-    "article [itemprop='articleBody']",
-    "article .entry-content",
-    "article .post-content",
-    "article .article-content",
-    "article .post-body",
-    "article",
-    ".entry-content",
-    ".post-content",
-    ".article-content",
-    ".post-body",
-    "main article",
-    "main"
-  ];
-
   const candidates = [];
-  contentSelectors.forEach((selector) => {
+  CONTENT_SELECTORS.forEach((selector) => {
     doc.querySelectorAll(selector).forEach((node) => candidates.push(node));
   });
   if (candidates.length === 0 && doc.body) {
@@ -669,9 +658,16 @@ async function validateLinksInOutput() {
   setStatus(`Validating ${links.length} links (best effort)...`);
 
   try {
-    for (const link of links) {
+    let checkedCount = 0;
+    const results = await processInBatches(links, 5, async (link) => {
       const href = link.getAttribute("href") || "";
       const result = await checkLinkForDeadPage(href);
+      checkedCount++;
+      setStatus(`Validating links: ${checkedCount}/${links.length} checked...`);
+      return { link, href, result };
+    });
+
+    for (const { link, href, result } of results) {
       if (result === "dead") {
         link.replaceWith(...link.childNodes);
         removedDead += 1;
@@ -703,11 +699,15 @@ async function checkLinkForDeadPage(url) {
     return "unknown";
   }
 
-  const probes = [fetchDirectProbe, fetchAllOriginsProbe, fetchJinaProbe];
-  let sawConfirmedOk = false;
+  const settled = await Promise.allSettled([
+    fetchDirectProbe(href),
+    fetchAllOriginsProbe(href),
+    fetchJinaProbe(href)
+  ]);
 
-  for (const probe of probes) {
-    const result = await probe(href);
+  let sawConfirmedOk = false;
+  for (const entry of settled) {
+    const result = entry.status === "fulfilled" ? entry.value : null;
     if (!result) {
       continue;
     }
@@ -870,6 +870,34 @@ async function fetchWithTimeout(url, options, timeoutMs) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function raceForFirstValid(probeFns, isValid, fallback) {
+  const raceable = probeFns.map((fn) =>
+    fn().then((result) => (isValid(result) ? result : Promise.reject()))
+  );
+  try {
+    return await Promise.any(raceable);
+  } catch {
+    return fallback;
+  }
+}
+
+async function processInBatches(items, concurrency, processFn) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      results[index] = await processFn(items[index], index);
+    }
+  }
+  const workers = [];
+  for (let i = 0; i < Math.min(concurrency, items.length); i++) {
+    workers.push(worker());
+  }
+  await Promise.all(workers);
+  return results;
 }
 
 function buildPromptTokens(phrases) {
@@ -1094,16 +1122,12 @@ function stripFormattingTags(root, tags) {
 
 function pruneToAllowedTags(root, allowedTags) {
   const allowed = new Set(allowedTags.map((tag) => tag.toUpperCase()));
-  let changed = true;
-
-  while (changed) {
-    changed = false;
-    root.querySelectorAll("*").forEach((el) => {
-      if (!allowed.has(el.nodeName)) {
-        el.replaceWith(...el.childNodes);
-        changed = true;
-      }
-    });
+  const elements = Array.from(root.querySelectorAll("*"));
+  for (let i = elements.length - 1; i >= 0; i--) {
+    const el = elements[i];
+    if (!allowed.has(el.nodeName)) {
+      el.replaceWith(...el.childNodes);
+    }
   }
 }
 
@@ -1145,22 +1169,15 @@ function stripAttributes(root) {
 }
 
 function removeEmptyElements(root) {
-  let changed = true;
-  while (changed) {
-    changed = false;
-    root.querySelectorAll("*").forEach((el) => {
-      if (el.nodeName === "BR") {
-        return;
-      }
-
-      const hasElementChild = el.children.length > 0;
-      const text = normalizeSpace(el.textContent || "");
-
-      if (!hasElementChild && text === "") {
-        el.remove();
-        changed = true;
-      }
-    });
+  const elements = Array.from(root.querySelectorAll("*"));
+  for (let i = elements.length - 1; i >= 0; i--) {
+    const el = elements[i];
+    if (el.nodeName === "BR") {
+      continue;
+    }
+    if (el.children.length === 0 && normalizeSpace(el.textContent || "") === "") {
+      el.remove();
+    }
   }
 }
 
