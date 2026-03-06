@@ -557,8 +557,8 @@ async function fetchImportHtml(url) {
     return fetchHtmlCache.get(url);
   }
   const html = await raceForFirstValid(
-    [() => fetchDirectHtmlForImport(url), () => fetchAllOriginsHtml(url), () => fetchCorsProxyHtml(url)],
-    (result) => result && result.trim() && /<html|<article|<body/i.test(result),
+    [() => fetchDirectHtmlForImport(url), () => fetchAllOriginsHtml(url), () => fetchCorsProxyHtml(url), () => fetchJinaHtml(url)],
+    (result) => result && result.trim() && (/<html|<article|<body/i.test(result) || /^(Title:|URL Source:|#\s)/im.test(result)),
     ""
   );
   if (html) {
@@ -596,7 +596,82 @@ async function fetchCorsProxyHtml(url) {
   }
 }
 
+function markdownBodyToHtml(markdown) {
+  // Strip Jina header lines (Title:, URL Source:, Markdown Content:, etc.)
+  const bodyMatch = markdown.match(/Markdown\s+Content:\s*\n([\s\S]*)/i);
+  const body = bodyMatch ? bodyMatch[1] : markdown.replace(/^(?:Title|URL Source|Published Time|Description):.*$/gim, "").trim();
+
+  const blocks = body.split(/\n{2,}/).map((b) => b.trim()).filter(Boolean);
+  const html = [];
+
+  for (const block of blocks) {
+    const lines = block.split("\n");
+    const first = lines[0] || "";
+
+    // Headings
+    const hMatch = first.match(/^(#{1,3})\s+(.+)$/);
+    if (hMatch && lines.length === 1) {
+      const level = Math.min(hMatch[1].length, 3);
+      html.push(`<h${level}>${inlineMarkdownToHtml(hMatch[2])}</h${level}>`);
+      continue;
+    }
+
+    // Ordered list (all lines start with "N.")
+    if (lines.every((l) => /^\d+\.\s/.test(l))) {
+      const items = lines.map((l) => `<li>${inlineMarkdownToHtml(l.replace(/^\d+\.\s+/, ""))}</li>`);
+      html.push(`<ol>${items.join("")}</ol>`);
+      continue;
+    }
+
+    // Unordered list (all lines start with "- " or "* ")
+    if (lines.every((l) => /^[-*]\s/.test(l))) {
+      const items = lines.map((l) => `<li>${inlineMarkdownToHtml(l.replace(/^[-*]\s+/, ""))}</li>`);
+      html.push(`<ul>${items.join("")}</ul>`);
+      continue;
+    }
+
+    // Skip bare heading-only lines without a body
+    if (/^#{1,3}\s/.test(first) && lines.length > 1) {
+      // Mixed block: emit heading then the rest as a paragraph
+      const hm = first.match(/^(#{1,3})\s+(.+)$/);
+      if (hm) {
+        html.push(`<h${Math.min(hm[1].length, 3)}>${inlineMarkdownToHtml(hm[2])}</h${Math.min(hm[1].length, 3)}>`);
+      }
+      const rest = lines.slice(1).join(" ").trim();
+      if (rest) {
+        html.push(`<p>${inlineMarkdownToHtml(rest)}</p>`);
+      }
+      continue;
+    }
+
+    // Paragraph
+    html.push(`<p>${inlineMarkdownToHtml(block.replace(/\n/g, " "))}</p>`);
+  }
+
+  return html.join("\n");
+}
+
+function inlineMarkdownToHtml(text) {
+  return (text || "")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2">$1</a>')
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*]+)\*/g, "<em>$1</em>")
+    .replace(/__([^_]+)__/g, "<strong>$1</strong>")
+    .replace(/_([^_\s][^_]*)_/g, "<em>$1</em>")
+    .replace(/\\([*_[\]()#])/g, "$1");
+}
+
 function extractArticleHtml(rawHtml) {
+  const trimmedRaw = (rawHtml || "").trim();
+  if (!trimmedRaw) {
+    return "";
+  }
+
+  // Handle Jina markdown format (no HTML tags)
+  if (!/<html|<head|<body/i.test(trimmedRaw)) {
+    return markdownBodyToHtml(trimmedRaw);
+  }
+
   const doc = new DOMParser().parseFromString(rawHtml, "text/html");
   const candidates = [];
   CONTENT_SELECTORS.forEach((selector) => {
