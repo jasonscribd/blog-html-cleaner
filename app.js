@@ -139,6 +139,7 @@ function cleanForContentful(input) {
   stripAttributes(root);
   removeEmptyElements(root);
   collapseExtraBreaks(root);
+  truncateAtAuthorBio(root);
 
   return sanitizeOutput(root.innerHTML);
 }
@@ -1276,6 +1277,33 @@ function collapseExtraBreaks(root) {
       }
     });
   });
+}
+
+function truncateAtAuthorBio(root) {
+  const elements = Array.from(root.querySelectorAll("p, h1, h2, h3"));
+
+  for (const el of elements) {
+    const text = normalizeSpace(el.textContent || "");
+    if (!/^About the Author/i.test(text)) {
+      continue;
+    }
+
+    // Walk up to the direct child of root
+    let topLevel = el;
+    while (topLevel.parentElement && topLevel.parentElement !== root) {
+      topLevel = topLevel.parentElement;
+    }
+
+    // Keep the heading and the next sibling (bio paragraph); remove everything after
+    const bio = topLevel.nextElementSibling;
+    let toRemove = bio ? bio.nextElementSibling : topLevel.nextElementSibling;
+    while (toRemove) {
+      const next = toRemove.nextElementSibling;
+      toRemove.remove();
+      toRemove = next;
+    }
+    break;
+  }
 }
 
 function sanitizeOutput(html) {
