@@ -423,15 +423,16 @@ function uniqueUrls(urls) {
 }
 
 async function fetchImageBlob(url) {
-  return await raceForFirstValid(
-    [
-      () => fetchBlobDirect(url),
-      () => fetchBlobViaCorsProxy(url),
-      () => fetchBlobViaCorsProxy(url, "https://api.allorigins.win/raw?url=")
-    ],
-    (blob) => blob && blob.size > 0,
-    null
-  );
+  const probes = [
+    () => fetchBlobDirect(url),
+    () => fetchBlobViaCorsProxy(url),
+    () => fetchBlobViaCorsProxy(url, "https://api.allorigins.win/raw?url="),
+  ];
+  for (const probe of probes) {
+    const blob = await probe();
+    if (blob && blob.size > 0) return blob;
+  }
+  return null;
 }
 
 async function fetchBlobDirect(url) {
