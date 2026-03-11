@@ -602,14 +602,42 @@ function markdownBodyToHtml(markdown) {
   const bodyMatch = markdown.match(/Markdown\s+Content:\s*\n([\s\S]*)/i);
   const body = bodyMatch ? bodyMatch[1] : markdown.replace(/^(?:Title|URL Source|Published Time|Description):.*$/gim, "").trim();
 
-  const blocks = body.split(/\n{2,}/).map((b) => b.trim()).filter(Boolean);
+  // Remove standalone markdown image lines before splitting into blocks
+  const cleanedBody = body
+    .replace(/^!\[[^\]]*\]\([^)]*\)\s*$/gm, "")           // standalone: ![alt](url)
+    .replace(/^\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)\s*$/gm, ""); // linked: [![alt](img)](link)
+
+  const blocks = cleanedBody.split(/\n{2,}/).map((b) => b.trim()).filter(Boolean);
   const html = [];
 
   for (const block of blocks) {
     const lines = block.split("\n");
     const first = lines[0] || "";
 
-    // Headings
+    // Skip horizontal rules (--- or === or ***)
+    if (/^[-*=]{3,}$/.test(block)) {
+      continue;
+    }
+
+    // Setext-style headings: Title\n=== (h1) or Title\n--- (h2)
+    if (lines.length >= 2 && first && /^=+$/.test(lines[1])) {
+      html.push(`<h1>${inlineMarkdownToHtml(first)}</h1>`);
+      const rest = lines.slice(2).join(" ").trim();
+      if (rest) {
+        html.push(`<p>${inlineMarkdownToHtml(rest)}</p>`);
+      }
+      continue;
+    }
+    if (lines.length >= 2 && first && /^-+$/.test(lines[1])) {
+      html.push(`<h2>${inlineMarkdownToHtml(first)}</h2>`);
+      const rest = lines.slice(2).join(" ").trim();
+      if (rest) {
+        html.push(`<p>${inlineMarkdownToHtml(rest)}</p>`);
+      }
+      continue;
+    }
+
+    // ATX headings
     const hMatch = first.match(/^(#{1,3})\s+(.+)$/);
     if (hMatch && lines.length === 1) {
       const level = Math.min(hMatch[1].length, 3);
@@ -654,6 +682,8 @@ function markdownBodyToHtml(markdown) {
 
 function inlineMarkdownToHtml(text) {
   return (text || "")
+    .replace(/\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)/g, "")     // strip linked images [![alt](img)](link)
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")                   // strip standalone images ![alt](url)
     .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2">$1</a>')
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/\*([^*]+)\*/g, "<em>$1</em>")
