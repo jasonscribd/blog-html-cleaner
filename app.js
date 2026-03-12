@@ -427,6 +427,7 @@ async function fetchImageBlob(url) {
     () => fetchBlobDirect(url),
     () => fetchBlobViaCorsProxy(url),
     () => fetchBlobViaCorsProxy(url, "https://api.allorigins.win/raw?url="),
+    () => fetchBlobViaCorsProxy(url, "https://images.weserv.nl/?url="),
   ];
   for (const probe of probes) {
     const blob = await probe();
@@ -900,11 +901,14 @@ async function fetchDirectProbe(url) {
 
 async function fetchAllOriginsProbe(url) {
   try {
-    const endpoint = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+    const endpoint = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
     const response = await fetchWithTimeout(endpoint, { method: "GET", mode: "cors" }, 10000);
-    const body = await response.text();
+    if (!response.ok) return null;
+    const json = await response.json();
+    const httpCode = json?.status?.http_code || 0;
+    const body = json?.contents || "";
     return {
-      status: response.status || 0,
+      status: httpCode,
       nonHtml: false,
       body
     };
