@@ -1035,11 +1035,18 @@ function hasPromptText(text, promptTokens) {
 
 function removePromptContent(root, phrases) {
   const promptTokens = buildPromptTokens(phrases);
+  const doc = root.ownerDocument;
 
   root.querySelectorAll("a").forEach((link) => {
-    if (hasPromptText(link.textContent || "", promptTokens)) {
-      link.remove();
+    if (!hasPromptText(link.textContent || "", promptTokens)) return;
+
+    const href = (link.getAttribute("href") || "").trim();
+    if (/^https?:\/\/(www\.)?everand\.com\/(book|audiobook)\//i.test(href)) {
+      const container = link.closest("p,li") || link.parentElement || link;
+      liftBookHeadingFromStartLink(container, href, doc, root);
     }
+
+    link.remove();
   });
 
   root.querySelectorAll("p,h1,h2,h3,h4,h5,h6,li,blockquote").forEach((el) => {
@@ -1064,6 +1071,64 @@ function removePromptContent(root, phrases) {
       el.remove();
     }
   });
+}
+
+function liftBookHeadingFromStartLink(container, href, doc, root) {
+  let urlPath;
+  try { urlPath = new URL(href).pathname.toLowerCase(); } catch { return; }
+
+  // Walk up to the direct child of root so siblings are at the top level
+  let topBlock = container;
+  while (topBlock.parentElement && topBlock.parentElement !== root) {
+    topBlock = topBlock.parentElement;
+  }
+
+  const promptTokens = buildPromptTokens(START_PROMPTS);
+  let title = "";
+  let insertBefore = topBlock;
+
+  // Strategy 1 (flat/Jina structure): search preceding siblings
+  let sibling = topBlock.previousElementSibling;
+  for (let i = 0; i < 8 && sibling; i++, sibling = sibling.previousElementSibling) {
+    if (sibling.nodeName === "H3") break;
+    if (Array.from(sibling.querySelectorAll("a")).some((a) =>
+      hasPromptText(a.textContent || "", promptTokens)
+    )) break;
+
+    let foundEm = false;
+    for (const em of sibling.querySelectorAll("em,i")) {
+      const text = normalizeSpace(em.textContent || "");
+      if (text.length >= 2 && urlPath.includes(text.toLowerCase().replace(/\s+/g, "-"))) {
+        if (!title) title = text;
+        foundEm = true;
+        break;
+      }
+    }
+    if (foundEm) insertBefore = sibling;
+  }
+
+  // Strategy 2 (grouped/real HTML structure): search inside topBlock
+  if (!title) {
+    for (const em of topBlock.querySelectorAll("em,i")) {
+      const text = normalizeSpace(em.textContent || "");
+      if (text.length >= 2 && urlPath.includes(text.toLowerCase().replace(/\s+/g, "-"))) {
+        title = text;
+        insertBefore = topBlock;
+        break;
+      }
+    }
+  }
+
+  if (!title) return;
+
+  const h3 = doc.createElement("h3");
+  const em = doc.createElement("em");
+  const a = doc.createElement("a");
+  a.setAttribute("href", href);
+  a.textContent = title;
+  em.appendChild(a);
+  h3.appendChild(em);
+  insertBefore.before(h3);
 }
 
 function removeComments(doc) {
@@ -1354,9 +1419,10 @@ function extractSeoMetadataFromRawPage(rawBody, fallbackUrl) {
   if (!/<html|<head|<body/i.test(trimmed)) {
     const titleMatch = trimmed.match(/^\s*Title:\s*(.+)$/im);
     const descriptionMatch = trimmed.match(/^\s*(?:Description|SEO Description):\s*(.+)$/im);
+    const description = normalizeSpace(descriptionMatch?.[1] || "") || extractFirstContentParagraph(trimmed);
     return {
       title: normalizeSpace(titleMatch?.[1] || ""),
-      description: normalizeSpace(descriptionMatch?.[1] || "")
+      description
     };
   }
 
@@ -1381,6 +1447,25 @@ function extractSeoMetadataFromRawPage(rawBody, fallbackUrl) {
     title: normalizeSeoTitle(title),
     description: normalizeSpace(description || "")
   };
+}
+
+function extractFirstContentParagraph(markdown) {
+  const bodyMatch = markdown.match(/Markdown\s+Content:\s*\n([\s\S]*)/i);
+  const body = bodyMatch
+    ? bodyMatch[1]
+    : markdown.replace(/^(?:Title|URL Source|Published Time|Description|Markdown Content):.*$/gim, "").trim();
+
+  for (const block of body.split(/\n{2,}/).map((b) => b.trim()).filter(Boolean)) {
+    if (/^[!#\-*=]/.test(block)) continue;
+    const text = block
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+      .replace(/[*_`]/g, "")
+      .replace(/\n/g, " ")
+      .trim();
+    if (text.length >= 40) return text;
+  }
+  return "";
 }
 
 function firstNonEmpty(values) {
