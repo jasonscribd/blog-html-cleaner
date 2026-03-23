@@ -914,14 +914,10 @@ async function fetchAllOriginsProbe(url) {
     const response = await fetchWithTimeout(endpoint, { method: "GET", mode: "cors" }, 10000);
     if (!response.ok) return null;
     const json = await response.json();
-    // allorigins may return http_code: 0 when it follows a redirect chain and loses
-    // track of the final status (e.g. www → subdomain redirects). Treat a non-zero
-    // content response as a 200 so the caller can confirm the page is live.
     const httpCode = json?.status?.http_code || 0;
     const body = json?.contents || "";
-    const effectiveStatus = httpCode === 0 && body ? 200 : httpCode;
     return {
-      status: effectiveStatus,
+      status: httpCode,
       nonHtml: false,
       body
     };
