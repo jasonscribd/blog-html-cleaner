@@ -559,11 +559,17 @@ async function fetchImportHtml(url) {
   if (fetchHtmlCache.has(url)) {
     return fetchHtmlCache.get(url);
   }
-  const html = await raceForFirstValid(
-    [() => fetchDirectHtmlForImport(url), () => fetchAllOriginsHtml(url), () => fetchCorsProxyHtml(url), () => fetchJinaHtml(url)],
-    (result) => result && result.trim() && (/<html|<article|<body/i.test(result) || /^(Title:|URL Source:|#\s)/im.test(result)),
-    ""
-  );
+  const settled = await Promise.allSettled([
+    fetchDirectHtmlForImport(url),
+    fetchAllOriginsHtml(url),
+    fetchCorsProxyHtml(url),
+    fetchJinaHtml(url)
+  ]);
+  const values = settled.map((r) => (r.status === "fulfilled" ? r.value : null));
+  const isValidHtml = (r) => r && r.trim() && /<html|<article|<body/i.test(r);
+  const isValidAny = (r) => r && r.trim() && (/<html|<article|<body/i.test(r) || /^(Title:|URL Source:|#\s)/im.test(r));
+  // Prefer real HTML (has meta tags for SEO) over Jina markdown
+  const html = values.find(isValidHtml) || values.find(isValidAny) || "";
   if (html) {
     fetchHtmlCache.set(url, html);
   }
@@ -816,6 +822,7 @@ async function checkLinkForDeadPage(url) {
   ]);
 
   let sawConfirmedOk = false;
+  let sawConfirmedDead = false;
   for (const entry of settled) {
     const result = entry.status === "fulfilled" ? entry.value : null;
     if (!result) {
@@ -823,7 +830,9 @@ async function checkLinkForDeadPage(url) {
     }
 
     if (result.status === 404 || result.status === 410) {
-      return "dead";
+      // Record but don't return yet — another probe may confirm the page is live
+      sawConfirmedDead = true;
+      continue;
     }
 
     if (result.nonHtml) {
@@ -854,7 +863,7 @@ async function checkLinkForDeadPage(url) {
     }
   }
 
-  return sawConfirmedOk ? "ok" : "unknown";
+  return sawConfirmedOk ? "ok" : sawConfirmedDead ? "dead" : "unknown";
 }
 
 function isDeadPageBody(body) {
@@ -905,10 +914,14 @@ async function fetchAllOriginsProbe(url) {
     const response = await fetchWithTimeout(endpoint, { method: "GET", mode: "cors" }, 10000);
     if (!response.ok) return null;
     const json = await response.json();
+    // allorigins may return http_code: 0 when it follows a redirect chain and loses
+    // track of the final status (e.g. www → subdomain redirects). Treat a non-zero
+    // content response as a 200 so the caller can confirm the page is live.
     const httpCode = json?.status?.http_code || 0;
     const body = json?.contents || "";
+    const effectiveStatus = httpCode === 0 && body ? 200 : httpCode;
     return {
-      status: httpCode,
+      status: effectiveStatus,
       nonHtml: false,
       body
     };
@@ -919,7 +932,7 @@ async function fetchAllOriginsProbe(url) {
 
 async function fetchJinaProbe(url) {
   try {
-    const endpoint = `https://r.jina.ai/http://${url.replace(/^https?:\/\//i, "")}`;
+    const endpoint = `https://r.jina.ai/${url}`;
     const response = await fetchWithTimeout(endpoint, { method: "GET", mode: "cors" }, 10000);
     const body = await response.text();
     return {
@@ -966,7 +979,7 @@ async function fetchAllOriginsHtml(url) {
 
 async function fetchJinaHtml(url) {
   try {
-    const endpoint = `https://r.jina.ai/http://${url.replace(/^https?:\/\//i, "")}`;
+    const endpoint = `https://r.jina.ai/${url}`;
     const response = await fetchWithTimeout(endpoint, { method: "GET", mode: "cors" }, 10000);
     if (!response.ok) {
       return null;
