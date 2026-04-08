@@ -9,8 +9,11 @@ const sourceUrl = document.getElementById("sourceUrl");
 const loadUrlBtn = document.getElementById("loadUrlBtn");
 const downloadThumbsBtn = document.getElementById("downloadThumbsBtn");
 const thumbStatus = document.getElementById("thumbStatus");
+const postSlug = document.getElementById("postSlug");
 const seoTitle = document.getElementById("seoTitle");
 const seoDescription = document.getElementById("seoDescription");
+const seoTitleRepeat = document.getElementById("seoTitleRepeat");
+const seoDescriptionRepeat = document.getElementById("seoDescriptionRepeat");
 const validatedLinks = document.getElementById("validatedLinks");
 
 const START_PROMPTS = ["Start Reading", "Start Listening"];
@@ -80,7 +83,7 @@ copyBtn.addEventListener("click", async () => {
   await navigator.clipboard.writeText(previewHtml);
   copyBtn.textContent = "Copied";
   setTimeout(() => {
-    copyBtn.textContent = "Copy Clean Preview";
+    copyBtn.textContent = "Copy Body HTML";
   }, 1200);
 });
 
@@ -89,6 +92,7 @@ clearBtn.addEventListener("click", () => {
   currentSourceHtml = "";
   currentCleanHtml = "";
   preview.innerHTML = "";
+  clearSlugField();
   clearSeoFields();
   clearValidatedLinksOutput();
   fetchHtmlCache.clear();
@@ -126,11 +130,11 @@ function cleanForContentful(input) {
     "source"
   ]);
 
-  removePromptContent(root, START_PROMPTS);
   normalizeHeadings(root);
   convertBookListItemsToH3(root);
   convertRankedBookHeadingsToH3(root);
   convertBookTitlesToH3(root);
+  removePromptContent(root, START_PROMPTS);
   unwrapTags(root, ["div", "span", "font", "section", "article", "main", "header", "footer", "aside"]);
   normalizeItalics(root);
   stripFormattingTags(root, ["b", "strong", "u"]);
@@ -139,6 +143,7 @@ function cleanForContentful(input) {
   stripAttributes(root);
   removeEmptyElements(root);
   collapseExtraBreaks(root);
+  stripPreamble(root);
   truncateAtAuthorBio(root);
 
   return sanitizeOutput(root.innerHTML);
@@ -168,6 +173,7 @@ async function loadSourceFromUrl() {
     }
 
     const seo = extractSeoMetadataFromRawPage(html, normalizedUrl);
+    setSlugField(normalizedUrl);
     setSeoFields(seo.title, seo.description);
 
     const extracted = extractArticleHtml(html);
@@ -847,15 +853,15 @@ async function checkLinkForDeadPage(url) {
       continue;
     }
 
+    if (isDeadPageBody(body)) {
+      return "dead";
+    }
+
     if (isChallengePageBody(body)) {
       if (result.status >= 200 && result.status < 400) {
         sawConfirmedOk = true;
       }
       continue;
-    }
-
-    if (isDeadPageBody(body)) {
-      return "dead";
     }
 
     if (result.status >= 200 && result.status < 400) {
@@ -1130,6 +1136,23 @@ function liftBookHeadingFromStartLink(container, href, doc, root) {
 
   if (!title) return;
 
+  // If an H3 already exists in the ranked list with this title, link it there instead
+  const normalizedTitle = title.toLowerCase();
+  const existingH3 = Array.from(root.querySelectorAll("h3")).find((h) => {
+    return normalizeSpace(h.textContent || "").toLowerCase().includes(normalizedTitle);
+  });
+  if (existingH3) {
+    const existingEm = existingH3.querySelector("em");
+    if (existingEm && !existingEm.querySelector("a")) {
+      const a = doc.createElement("a");
+      a.setAttribute("href", href);
+      a.textContent = normalizeSpace(existingEm.textContent || "");
+      existingEm.textContent = "";
+      existingEm.appendChild(a);
+    }
+    return;
+  }
+
   const h3 = doc.createElement("h3");
   const em = doc.createElement("em");
   const a = doc.createElement("a");
@@ -1388,12 +1411,37 @@ function collapseExtraBreaks(root) {
   });
 }
 
+function stripPreamble(root) {
+  // Remove everything before the first substantial paragraph (the real article body).
+  // This eliminates duplicated post titles, site nav h3s, bylines, and CTAs that
+  // appear at the top of the extracted HTML before the actual content begins.
+  const firstRealPara = Array.from(root.children).find((el) => {
+    if (el.nodeName !== "P") return false;
+    const text = normalizeSpace(el.textContent || "");
+    return text.length >= 80;
+  });
+  if (!firstRealPara) return;
+  let el = firstRealPara.previousElementSibling;
+  while (el) {
+    const prev = el.previousElementSibling;
+    el.remove();
+    el = prev;
+  }
+}
+
+const TRUNCATION_MARKERS = [
+  /^[#*\s]*About the Author/i,
+  /^[#*\s]*Trending Now/i,
+  /^[#*\s]*Related Posts/i,
+  /^[#*\s]*You May Also Like/i,
+];
+
 function truncateAtAuthorBio(root) {
   const elements = Array.from(root.querySelectorAll("p, h1, h2, h3"));
 
   for (const el of elements) {
     const text = normalizeSpace(el.textContent || "");
-    if (!/^About the Author/i.test(text)) {
+    if (!TRUNCATION_MARKERS.some((re) => re.test(text))) {
       continue;
     }
 
@@ -1403,9 +1451,8 @@ function truncateAtAuthorBio(root) {
       topLevel = topLevel.parentElement;
     }
 
-    // Keep the heading and the next sibling (bio paragraph); remove everything after
-    const bio = topLevel.nextElementSibling;
-    let toRemove = bio ? bio.nextElementSibling : topLevel.nextElementSibling;
+    // Remove the "About the Author" heading and everything from it onward
+    let toRemove = topLevel;
     while (toRemove) {
       const next = toRemove.nextElementSibling;
       toRemove.remove();
@@ -1428,10 +1475,9 @@ function extractSeoMetadataFromRawPage(rawBody, fallbackUrl) {
   if (!/<html|<head|<body/i.test(trimmed)) {
     const titleMatch = trimmed.match(/^\s*Title:\s*(.+)$/im);
     const descriptionMatch = trimmed.match(/^\s*(?:Description|SEO Description):\s*(.+)$/im);
-    const description = normalizeSpace(descriptionMatch?.[1] || "") || extractFirstContentParagraph(trimmed);
     return {
       title: normalizeSpace(titleMatch?.[1] || ""),
-      description
+      description: normalizeSpace(descriptionMatch?.[1] || "")
     };
   }
 
@@ -1495,14 +1541,31 @@ function normalizeSeoTitle(title) {
   return normalized.replace(/\s*[\|\-]\s*Everand.*$/i, "").trim();
 }
 
+function setSlugField(url) {
+  try {
+    const segments = new URL(url).pathname.split("/").filter(Boolean);
+    postSlug.value = segments[segments.length - 1] || "";
+  } catch {
+    postSlug.value = "";
+  }
+}
+
+function clearSlugField() {
+  postSlug.value = "";
+}
+
 function setSeoFields(title, description) {
   seoTitle.value = normalizeSpace(title || "");
   seoDescription.value = normalizeSpace(description || "");
+  seoTitleRepeat.value = seoTitle.value;
+  seoDescriptionRepeat.value = seoDescription.value;
 }
 
 function clearSeoFields() {
   seoTitle.value = "";
   seoDescription.value = "";
+  seoTitleRepeat.value = "";
+  seoDescriptionRepeat.value = "";
 }
 
 function clearValidatedLinksOutput() {
@@ -1510,45 +1573,24 @@ function clearValidatedLinksOutput() {
 }
 
 function formatValidatedLinksByType(urls, removedUrls = [], unconfirmedUrls = []) {
-  const uniqueOk = uniqueUrls(
-    urls
-      .map((url) => normalizeSpace(url))
-      .filter((url) => /^https?:\/\//i.test(url))
-  );
-  const uniqueRemoved = uniqueUrls(
-    removedUrls
-      .map((url) => normalizeSpace(url))
-      .filter((url) => /^https?:\/\//i.test(url))
-  );
-  const uniqueUnconfirmed = uniqueUrls(
-    unconfirmedUrls
-      .map((url) => normalizeSpace(url))
-      .filter((url) => /^https?:\/\//i.test(url))
-  );
+  const validUrl = (url) => /^https?:\/\//i.test(normalizeSpace(url));
 
-  if (uniqueOk.length === 0 && uniqueRemoved.length === 0 && uniqueUnconfirmed.length === 0) {
+  const liveBlogLinks = uniqueUrls(
+    urls.map((url) => normalizeSpace(url)).filter(validUrl).filter((url) => linkTypeForUrl(url) === "Blog Links")
+  );
+  const uniqueRemoved = uniqueUrls(removedUrls.map((url) => normalizeSpace(url)).filter(validUrl));
+  const uniqueUnconfirmed = uniqueUrls(unconfirmedUrls.map((url) => normalizeSpace(url)).filter(validUrl));
+
+  if (liveBlogLinks.length === 0 && uniqueRemoved.length === 0 && uniqueUnconfirmed.length === 0) {
     return "";
   }
 
-  const grouped = new Map();
-  uniqueOk.forEach((url) => {
-    const type = linkTypeForUrl(url);
-    if (!grouped.has(type)) {
-      grouped.set(type, []);
-    }
-    grouped.get(type).push(url);
-  });
-
   const output = [];
-  const orderedTypes = ["Blog Links", "Book Links", "Other Links"];
-  orderedTypes.forEach((type) => {
-    const list = grouped.get(type) || [];
-    if (list.length === 0) {
-      return;
-    }
-    output.push(`${type}:`);
-    output.push(list.join("\n"));
-  });
+
+  if (liveBlogLinks.length > 0) {
+    output.push("Live Blog Links (update these on the new blog):");
+    output.push(liveBlogLinks.join("\n"));
+  }
 
   if (uniqueUnconfirmed.length > 0) {
     output.push("Unconfirmed Links (kept — could not verify, please spot-check):");

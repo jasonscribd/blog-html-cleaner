@@ -138,8 +138,21 @@ button {
   background: #fff;
 }
 
-.preview-panel h2 {
+.preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.preview-header h2 {
+  margin: 0;
   font-size: 18px;
+}
+
+.field-note {
+  font-weight: 400;
+  color: var(--muted);
 }
 
 @media (max-width: 720px) {

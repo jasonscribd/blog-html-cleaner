@@ -10,18 +10,21 @@
     <main class="app">
       <header>
         <h1>Blog HTML Cleaner</h1>
-        <p>Paste copied blog content, clean it for Contentful, then copy the result.</p>
+        <p>Load a post URL, clean it, then paste each field into Contentful top to bottom.</p>
       </header>
 
+      <!-- Step 1: Load the source post -->
       <section class="panel">
-        <label for="pasteTarget">Paste rich text from the source blog</label>
-        <label for="sourceUrl">Or load directly from a blog URL</label>
+        <label for="sourceUrl">Source blog URL</label>
         <div class="actions">
           <input id="sourceUrl" type="url" placeholder="https://example.com/blog-post" />
           <button id="loadUrlBtn" type="button">Load from URL</button>
-          <button id="downloadThumbsBtn" type="button">Download Thumbnails ZIP</button>
+        </div>
+        <div class="actions" style="margin-top:0.5rem">
+          <button id="downloadThumbsBtn" type="button">Download Images (thumbnails and featured)</button>
         </div>
         <p id="thumbStatus" class="hint"></p>
+        <label for="pasteTarget" style="margin-top:1rem">Or paste rich text from the source blog</label>
         <div
           id="pasteTarget"
           class="paste-target"
@@ -32,29 +35,55 @@
         <p class="hint">Tip: Click inside the box and paste. The app captures HTML when available.</p>
       </section>
 
+      <!-- Step 2: Clean and validate -->
       <div class="actions">
         <button id="cleanBtn" type="button">Clean HTML</button>
         <button id="validateLinksBtn" type="button">Validate Links</button>
-        <button id="copyBtn" type="button">Copy Clean Preview</button>
         <button id="clearBtn" type="button">Clear</button>
       </div>
       <p id="linkStatus" class="hint"></p>
 
-      <section class="panel preview-panel">
-        <h2>Preview</h2>
-        <div id="preview" class="preview"></div>
+      <!-- Contentful fields in order -->
+
+      <!-- Contentful: Title + SEO Title -->
+      <section class="panel">
+        <label for="seoTitle">Title <span class="field-note">— paste into <strong>Title</strong> and <strong>SEO Title</strong> in Contentful</span></label>
+        <textarea id="seoTitle" rows="2" spellcheck="false" readonly></textarea>
       </section>
 
+      <!-- Contentful: Excerpt + SEO Description -->
       <section class="panel">
-        <label for="seoTitle">SEO Title</label>
-        <textarea id="seoTitle" rows="2" spellcheck="false" readonly></textarea>
-        <label for="seoDescription">SEO Description</label>
+        <label for="seoDescription">Excerpt <span class="field-note">— paste into <strong>Excerpt</strong> and <strong>SEO Description</strong> in Contentful</span></label>
         <textarea id="seoDescription" rows="3" spellcheck="false" readonly></textarea>
       </section>
 
+      <!-- Contentful: Body -->
+      <section class="panel preview-panel">
+        <div class="preview-header">
+          <h2>Body</h2>
+          <button id="copyBtn" type="button">Copy Body HTML</button>
+        </div>
+        <div id="preview" class="preview"></div>
+      </section>
+
+      <!-- Contentful: Slug -->
       <section class="panel">
-        <label for="validatedLinks">Validated Links (grouped by type)</label>
+        <label for="postSlug">Slug — <strong>Important: reproduce this slug exactly on the new blog</strong></label>
+        <textarea id="postSlug" rows="1" spellcheck="false" readonly></textarea>
+      </section>
+
+      <!-- Reference: live blog links that need updating -->
+      <section class="panel">
+        <label for="validatedLinks">Live Blog Links (update these on the new blog) / Removed Links</label>
         <textarea id="validatedLinks" rows="12" spellcheck="false" readonly></textarea>
+      </section>
+
+      <!-- Contentful: SEO Title + SEO Description (mirrors Title and Excerpt above) -->
+      <section class="panel">
+        <label for="seoTitleRepeat">SEO Title <span class="field-note">— same as Title above</span></label>
+        <textarea id="seoTitleRepeat" rows="2" spellcheck="false" readonly></textarea>
+        <label for="seoDescriptionRepeat">SEO Description <span class="field-note">— same as Excerpt above</span></label>
+        <textarea id="seoDescriptionRepeat" rows="3" spellcheck="false" readonly></textarea>
       </section>
 
     </main>
