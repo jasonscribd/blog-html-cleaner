@@ -3,43 +3,38 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Blog HTML Cleaner</title>
+    <title>Blog HTML Cleaner — New Posts</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <main class="app">
       <header>
-        <h1>Blog HTML Cleaner</h1>
-        <p>Load a post URL, clean it, then paste each field into Contentful top to bottom.</p>
-        <p><a href="new-posts.html">New posts from Google Doc drafts &rarr;</a></p>
+        <h1>Blog HTML Cleaner — New Posts</h1>
+        <p>
+          For drafts written in Google Docs that were never published. Download the Google Doc as <strong>.docx</strong>, upload the image ZIP, then copy each field into Contentful top to bottom.
+        </p>
+        <p><a href="index.html">&larr; Back to the Everand migration tool</a></p>
       </header>
 
-      <!-- Step 1: Load the source post -->
+      <!-- Step 1: upload the Google Doc as DOCX -->
       <section class="panel">
-        <label for="sourceUrl">Source blog URL</label>
-        <div class="actions">
-          <input id="sourceUrl" type="url" placeholder="https://example.com/blog-post" />
-          <button id="loadUrlBtn" type="button">Load from URL</button>
-        </div>
-        <div class="actions" style="margin-top:0.5rem">
-          <button id="downloadThumbsBtn" type="button">Download Images (thumbnails and featured)</button>
-        </div>
-        <p id="thumbStatus" class="hint"></p>
-        <label for="pasteTarget" style="margin-top:1rem">Or paste rich text from the source blog</label>
-        <div
-          id="pasteTarget"
-          class="paste-target"
-          contenteditable="true"
-          spellcheck="false"
-          aria-label="Paste rich text here"
-        ></div>
-        <p class="hint">Tip: Click inside the box and paste. The app captures HTML when available.</p>
+        <label for="docxFile">Upload the Google Doc as <strong>.docx</strong></label>
+        <input id="docxFile" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+        <p id="docxStatus" class="hint">In Google Docs: <em>File → Download → Microsoft Word (.docx)</em>, then drop the file here.</p>
       </section>
 
-      <!-- Step 2: Clean and validate -->
+      <!-- Step 2: upload image ZIP -->
+      <section class="panel">
+        <label for="imageZip">Upload the image ZIP</label>
+        <input id="imageZip" type="file" accept=".zip,application/zip" />
+        <p id="zipStatus" class="hint"></p>
+      </section>
+
+      <!-- Step 3: actions -->
       <div class="actions">
-        <button id="cleanBtn" type="button">Clean HTML</button>
+        <button id="parseBtn" type="button">Parse & Clean</button>
         <button id="validateLinksBtn" type="button">Validate Links</button>
+        <button id="downloadZipBtn" type="button">Download Resized Images ZIP</button>
         <button id="clearBtn" type="button">Clear</button>
       </div>
       <p id="linkStatus" class="hint"></p>
@@ -90,6 +85,7 @@
     </main>
 
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-    <script src="app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mammoth@1.9.0/mammoth.browser.min.js"></script>
+    <script src="new-posts.js"></script>
   </body>
 </html>
