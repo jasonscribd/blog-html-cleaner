@@ -634,13 +634,14 @@ async function downloadResizedZip() {
     let processed = 0;
     let added = 0;
     const failed = [];
+    const usedNames = new Set();
 
     for (const { path, entry, basename } of entries) {
       processed++;
       setZipStatus(`Processing ${processed}/${entries.length}: ${basename}`);
 
       const blob = await entry.async("blob");
-      const isHeader = /(^|\/)article_headers\//i.test(path);
+      const isHeader = /(^|\/)article[ _-]headers?\//i.test(path);
 
       let finalBlob = blob;
       if (!isHeader) {
@@ -649,8 +650,9 @@ async function downloadResizedZip() {
         finalBlob = resized;
       }
 
-      // Mirror the input folder structure (minus any top-level wrapper folder).
-      const outputPath = stripTopFolder(path);
+      // Flatten: drop all folder structure, keep just the filename. If two images share
+      // a basename across folders, suffix with -2, -3, etc. so nothing is overwritten.
+      const outputPath = dedupeFilename(basename, usedNames);
       outputZip.file(outputPath, finalBlob);
       added++;
     }
@@ -671,10 +673,18 @@ async function downloadResizedZip() {
   }
 }
 
-function stripTopFolder(path) {
-  const parts = path.split("/");
-  if (parts.length <= 1) return path;
-  return parts.slice(1).join("/");
+// Return a filename unique within `used`. If `name` is already taken, insert "-2" before
+// the extension ("foo.jpg" → "foo-2.jpg"), incrementing until a free slot is found.
+function dedupeFilename(name, used) {
+  if (!used.has(name)) { used.add(name); return name; }
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : "";
+  let i = 2;
+  while (used.has(`${stem}-${i}${ext}`)) i++;
+  const unique = `${stem}-${i}${ext}`;
+  used.add(unique);
+  return unique;
 }
 
 async function resizeImageBlobToWidth(blob, targetWidth) {
