@@ -613,17 +613,23 @@ async function downloadResizedZip() {
     const inputZip = await JSZip.loadAsync(file);
     const outputZip = new JSZip();
 
-    // Collect image entries; skip hidden files, urls.txt, and any non-image.
+    // Collect image entries. Only keep files from article_headers/ and cover_thumbnails/;
+    // skip hidden files, masters in 00_resources/, and anything that isn't an image.
+    const INCLUDE_FOLDER = /(^|\/)(article[ _-]headers?|cover[ _-]thumbnails?)\//i;
     const entries = [];
     inputZip.forEach((path, entry) => {
       if (entry.dir) return;
       const basename = (path.split("/").pop() || "");
       if (basename.startsWith(".")) return;
       if (!/\.(jpe?g|png|gif|webp)$/i.test(basename)) return;
+      if (!INCLUDE_FOLDER.test(path)) return;
       entries.push({ path, entry, basename });
     });
 
-    if (!entries.length) { setZipStatus("No images found in the ZIP."); return; }
+    if (!entries.length) {
+      setZipStatus("No images found in article_headers/ or cover_thumbnails/ inside the ZIP.");
+      return;
+    }
 
     let processed = 0;
     let added = 0;
