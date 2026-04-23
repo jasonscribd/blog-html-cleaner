@@ -200,8 +200,10 @@ function docxHtmlToFieldsAndBody(rawHtml) {
     }
   }
 
-  // Strip slashes around the slug (writers type "/books-like-lord-of-the-rings/").
-  fields.slug = (fields.slug || "").replace(/^\s*\/*|\/*\s*$/g, "");
+  // Normalize the slug — keep only the final path segment so writers can paste
+  // a full URL ("https://www.everand.com/blog/books-like-lotr") or a bare slug
+  // ("/books-like-lotr/") and we end up with just "books-like-lotr".
+  fields.slug = normalizeSlug(fields.slug);
 
   // Remove all tables from the body — they're the header, not content.
   headerTables.forEach((t) => t.remove());
@@ -745,6 +747,21 @@ function triggerDownload(blob, filename) {
 // ---------- Small utilities ----------
 function normalizeSpace(text) {
   return String(text || "").replace(/\s+/g, " ").trim();
+}
+
+function normalizeSlug(raw) {
+  let s = String(raw || "").trim();
+  if (!s) return "";
+  // Drop protocol if present.
+  s = s.replace(/^[a-z]+:\/\//i, "");
+  // Drop query string and fragment.
+  s = s.split("?")[0].split("#")[0];
+  // Trim surrounding slashes and whitespace.
+  s = s.replace(/^\s*\/+|\/+\s*$/g, "").trim();
+  if (!s) return "";
+  // Keep only the final path segment ("example.com/blog/my-post" → "my-post").
+  const parts = s.split("/").filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : "";
 }
 
 async function fetchWithTimeout(url, options, timeoutMs) {
