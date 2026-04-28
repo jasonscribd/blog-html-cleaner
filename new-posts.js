@@ -208,12 +208,14 @@ function docxHtmlToFieldsAndBody(rawHtml) {
   // Remove all tables from the body — they're the header, not content.
   headerTables.forEach((t) => t.remove());
 
-  // Drop "Source: Everand" and "[Alt text: ...]" paragraphs wherever they appear.
+  // Drop "Source: Everand" and alt-text paragraphs wherever they appear.
+  // Writers format alt text as either "[Alt text: ...]" or just "Alt text: ..." (often italicized),
+  // so the leading bracket is optional.
   Array.from(root.querySelectorAll("p")).forEach((p) => {
     const text = normalizeSpace(p.textContent || "");
     if (!text) return;
     if (/^source\s*:/i.test(text)) { p.remove(); return; }
-    if (/^\[\s*alt\s*text\s*:/i.test(text)) { p.remove(); return; }
+    if (/^\[?\s*alt\s*text\s*:/i.test(text)) { p.remove(); return; }
   });
 
   // Remove embedded images (writers re-upload images directly in Contentful).
